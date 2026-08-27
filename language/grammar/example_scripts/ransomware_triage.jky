@@ -1,0 +1,29 @@
+# JOCKY Forensic Script — Ransomware Triage
+# Investigator: J.Sharma | Case: CASE-2026-0417
+# Tests: all four sections present, full volatility order, mixed commands
+
+case
+    id          "CASE-2026-0417"
+    operator    "J.Sharma"
+    target      "WIN-MACHINE-04"
+    mode        "remote"
+
+section memory
+    acquire process_list()
+    acquire memory_region(pid=1044, size=4096)
+    acquire cpu_registers()
+
+section network
+    acquire connections()
+    acquire dns_cache()
+    capture traffic(duration=30, interface="eth0")
+
+section system
+    inspect registry(key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run")
+    inspect services(state="running")
+    inspect startup_items()
+
+section disk
+    hash file(path="C:\Users\suspect\invoice.pdf")
+    inspect file_metadata(path="C:\Users\suspect\invoice.pdf")
+    inspect recent_files(count=20)

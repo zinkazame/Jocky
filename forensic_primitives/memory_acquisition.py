@@ -1,0 +1,1 @@
+"""Memory acquisition placeholder."""

@@ -1,0 +1,3 @@
+# Jocky
+
+Project structure scaffold.

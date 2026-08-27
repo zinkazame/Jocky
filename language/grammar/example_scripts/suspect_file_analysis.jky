@@ -1,0 +1,23 @@
+# JOCKY Forensic Script — Suspect File Analysis
+# Investigator: A.Verma | Case: CASE-2026-0512
+# Tests: only two sections present (system, disk) — memory and network omitted.
+#        Validates that Constraint 1 allows gaps in the order, not just scrambles.
+
+case
+    id          "CASE-2026-0512"
+    operator    "A.Verma"
+    target      "WIN-LAPTOP-07"
+    mode        "local"
+
+section system
+    inspect registry(key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run")
+    inspect registry(key="HKCU\Software\Microsoft\Windows\CurrentVersion\Run")
+    inspect services(state="running")
+    inspect startup_items()
+
+section disk
+    hash file(path="C:\Users\suspect\invoice.exe")
+    hash file(path="C:\Users\suspect\update.bat")
+    inspect file_metadata(path="C:\Users\suspect\invoice.exe")
+    inspect file_metadata(path="C:\Users\suspect\update.bat")
+    inspect recent_files(count=50)

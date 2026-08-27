@@ -1,0 +1,1 @@
+"""Log collector placeholder."""

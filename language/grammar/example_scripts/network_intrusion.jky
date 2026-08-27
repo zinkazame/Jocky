@@ -1,0 +1,21 @@
+# JOCKY Forensic Script — Network Intrusion Triage
+# Investigator: R.Singh | Case: CASE-2026-0603
+# Tests: two sections (memory, network), no-arg calls, multi-arg calls,
+#        INTEGER and IDENTIFIER arg values (not just STRING).
+
+case
+    id          "CASE-2026-0603"
+    operator    "R.Singh"
+    target      "LINUX-SERVER-02"
+    mode        "remote"
+
+section memory
+    acquire process_list()
+    acquire cpu_registers()
+    acquire memory_region(pid=872, size=8192)
+
+section network
+    acquire connections()
+    acquire dns_cache()
+    capture traffic(duration=60, interface=eth0)
+    capture traffic(duration=60, interface=eth1)

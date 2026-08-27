@@ -1,0 +1,1 @@
+"""LOLDrivers database query placeholder."""

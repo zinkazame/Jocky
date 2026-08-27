@@ -1,0 +1,20 @@
+# JOCKY Test Script — SHOULD BE REJECTED BY VALIDATOR
+# Case: Constraint 1 violation — disk appears before memory
+#
+# The grammar accepts this script (it is syntactically valid).
+# The Phase 3 validator must reject it with:
+#   JockyValidationError: Sections are out of volatility order.
+#
+# Expected: parser.parse() succeeds, validate(tree) raises.
+
+case
+    id          "CASE-2026-INVALID"
+    operator    "Test.User"
+    target      "TEST-MACHINE-01"
+    mode        "local"
+
+section disk
+    hash file(path="C:\test\sample.exe")
+
+section memory
+    acquire process_list()
