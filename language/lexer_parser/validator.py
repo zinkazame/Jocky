@@ -59,7 +59,6 @@ def validate(tree: Tree) -> None:
     ----------
     tree : lark.Tree
         Tree returned by parser.parse() / parser.parse_file().
-        Must have been produced with keep_all_tokens=True (set in parser.py).
 
     Raises
     ------
@@ -67,9 +66,9 @@ def validate(tree: Tree) -> None:
         On the first constraint violation found.
     """
     section_names = _extract_section_names(tree)
-    _validate_section_order(section_names)
-    _validate_no_duplicates(section_names)
-    _validate_command_primitive(tree)
+    _validate_no_duplicates(section_names)    # must run before order check —
+    _validate_section_order(section_names)    # a duplicate fools the order
+    _validate_command_primitive(tree)         # comparator with a false positive
 
 
 # ─── Tree traversal helper ───────────────────────────────────────────────────
