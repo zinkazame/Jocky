@@ -1,1 +1,0 @@
-"""Direct syscall stubs placeholder."""
