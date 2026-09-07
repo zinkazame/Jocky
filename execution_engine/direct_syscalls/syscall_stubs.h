@@ -2,7 +2,7 @@
 #include <windows.h>
 
 /*
- * JOCKY — Direct Syscall Wrappers
+ * DORM — Direct Syscall Wrappers
  * ================================
  * Implemented in syscall_stubs.asm (NASM, x64).
  * Bypass NTDLL entirely — EDR hooks on ntdll stubs are never reached.
@@ -16,14 +16,14 @@
  *       clang your_code.c syscall_stubs.obj -o output.exe
  */
 
-NTSTATUS jocky_nt_query_system_information(
+NTSTATUS dorm_nt_query_system_information(
     ULONG   SystemInformationClass,
     PVOID   SystemInformation,
     ULONG   SystemInformationLength,
     PULONG  ReturnLength
 );
 
-NTSTATUS jocky_nt_read_virtual_memory(
+NTSTATUS dorm_nt_read_virtual_memory(
     HANDLE  ProcessHandle,
     PVOID   BaseAddress,
     PVOID   Buffer,
@@ -31,7 +31,7 @@ NTSTATUS jocky_nt_read_virtual_memory(
     PSIZE_T NumberOfBytesRead
 );
 
-NTSTATUS jocky_nt_query_directory_file(
+NTSTATUS dorm_nt_query_directory_file(
     HANDLE  FileHandle,
     HANDLE  Event,
     PVOID   ApcRoutine,

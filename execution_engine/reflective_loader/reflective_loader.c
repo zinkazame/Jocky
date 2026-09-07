@@ -1,5 +1,5 @@
 /*
- * JOCKY — Phase 10: Reflective DLL Loader (cleaned, static helpers)
+ * DORM — Phase 10: Reflective DLL Loader (cleaned, static helpers)
  * ===================================================================
  * Fully position-independent — no global variables.
  * Internal helpers are static; only ReflectiveLoader is exported.

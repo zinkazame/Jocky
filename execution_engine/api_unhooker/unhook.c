@@ -28,7 +28,7 @@ pe_find_text_section(PIMAGE_NT_HEADERS64 nt)
     return NULL;
 }
 
-BOOL jocky_unhook_ntdll(void)
+BOOL dorm_unhook_ntdll(void)
 {
     BOOL   result      = FALSE;
     HANDLE file_handle = INVALID_HANDLE_VALUE;

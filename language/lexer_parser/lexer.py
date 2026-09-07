@@ -1,1 +1,1 @@
-"""Jocky lexer placeholder."""
+"""Dorm lexer placeholder."""

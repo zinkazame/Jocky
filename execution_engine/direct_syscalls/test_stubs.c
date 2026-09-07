@@ -1,5 +1,5 @@
 /*
- * JOCKY — Phase 7 verification harness
+ * DORM — Phase 7 verification harness
  *
  * Build:
  *   nasm -f win64 syscall_stubs.asm -o syscall_stubs.obj
@@ -29,14 +29,14 @@ static void check(const char *name, NTSTATUS s, ULONG ret_len) {
 }
 
 int main(void) {
-    printf("JOCKY Phase 7 — Direct Syscall Verification\n");
+    printf("DORM Phase 7 — Direct Syscall Verification\n");
     printf("============================================\n\n");
 
     /* ── Test 1: NtQuerySystemInformation ── */
     {
         BYTE  buf[256] = {0};
         ULONG ret_len  = 0;
-        NTSTATUS s = jocky_nt_query_system_information(
+        NTSTATUS s = dorm_nt_query_system_information(
             SystemBasicInformation, buf, sizeof(buf), &ret_len
         );
         check("NtQuerySystemInformation", s, ret_len);
@@ -49,7 +49,7 @@ int main(void) {
         BYTE   src[64]  = {0xDE, 0xAD, 0xBE, 0xEF};
         BYTE   dst[64]  = {0};
         SIZE_T got      = 0;
-        NTSTATUS s = jocky_nt_read_virtual_memory(
+        NTSTATUS s = dorm_nt_read_virtual_memory(
             GetCurrentProcess(),   /* pseudo-handle, always valid */
             src,                   /* source: our own stack buffer */
             dst,                   /* destination: another stack buffer */
@@ -76,7 +76,7 @@ int main(void) {
         IO_STATUS_BLOCK iosb = {0};
         BYTE            buf[512] = {0};
         ULONG           ret_len  = 0;
-        NTSTATUS s = jocky_nt_query_directory_file(
+        NTSTATUS s = dorm_nt_query_directory_file(
             NULL,   /* invalid handle — kernel returns C0000008 */
             NULL, NULL, NULL,
             &iosb,

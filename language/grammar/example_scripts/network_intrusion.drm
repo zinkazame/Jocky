@@ -1,4 +1,4 @@
-# JOCKY Forensic Script — Network Intrusion Triage
+# DORM Forensic Script — Network Intrusion Triage
 # Investigator: R.Singh | Case: CASE-2026-0603
 # Tests: two sections (memory, network), no-arg calls, multi-arg calls,
 #        INTEGER and IDENTIFIER arg values (not just STRING).

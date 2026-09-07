@@ -2,7 +2,7 @@
 #include <windows.h>
 
 /*
- * jocky_unhook_ntdll
+ * dorm_unhook_ntdll
  * ==================
  * Restores the clean .text section of the in-process NTDLL from the
  * on-disk copy at C:\Windows\System32\ntdll.dll.
@@ -20,4 +20,4 @@
  * Call once at agent startup, before any forensic primitives run.
  * Not re-entrant — do not call from multiple threads simultaneously.
  */
-BOOL jocky_unhook_ntdll(void);
+BOOL dorm_unhook_ntdll(void);

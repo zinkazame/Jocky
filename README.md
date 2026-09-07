@@ -1,3 +1,3 @@
-# Jocky
+# Dorm
 
 Project structure scaffold.

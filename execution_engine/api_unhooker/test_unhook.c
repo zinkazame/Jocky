@@ -20,19 +20,19 @@ error_name(DWORD code)
 
 int main(void)
 {
-    printf("JOCKY Phase 8 -- API Unhooker Verification\n");
+    printf("DORM Phase 8 -- API Unhooker Verification\n");
     printf("==========================================\n\n");
 
     printf("Unhooking NTDLL...\n");
 
-    BOOL ok = jocky_unhook_ntdll();
+    BOOL ok = dorm_unhook_ntdll();
 
     if (ok) {
-        printf("jocky_unhook_ntdll: success\n");
+        printf("dorm_unhook_ntdll: success\n");
         printf("NTDLL .text section restored from disk copy.\n");
     } else {
         DWORD err = GetLastError();
-        printf("jocky_unhook_ntdll: FAILED -- GetLastError() = %lu (%s)\n",
+        printf("dorm_unhook_ntdll: FAILED -- GetLastError() = %lu (%s)\n",
                (unsigned long)err, error_name(err));
         return 1;
     }

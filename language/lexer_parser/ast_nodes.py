@@ -1,1 +1,1 @@
-"""Jocky AST node definitions placeholder."""
+"""Dorm AST node definitions placeholder."""

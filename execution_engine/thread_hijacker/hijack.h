@@ -12,7 +12,7 @@
 #include <windows.h>
 
 /*
- * jocky_hijack_thread
+ * dorm_hijack_thread
  * ====================
  * Injects and executes payload_bytes in target_pid by hijacking an
  * existing thread. No new thread is created; uses only:
@@ -33,7 +33,7 @@
  * CAUTION: Race-prone when target_pid was just spawned.
  *   CreateToolhelp32Snapshot may complete before the process registers
  *   any threads, returning ERROR_NOT_FOUND (1168).
- *   Use jocky_hijack_thread_by_tid() with pi.dwThreadId instead.
+ *   Use dorm_hijack_thread_by_tid() with pi.dwThreadId instead.
  *
  * Parameters:
  *   target_pid    — PID of the target process (must already be running)
@@ -48,23 +48,23 @@
  *
  * Returns TRUE on success, FALSE on failure (call GetLastError for detail).
  */
-BOOL jocky_hijack_thread(
+BOOL dorm_hijack_thread(
     DWORD  target_pid,
     LPBYTE payload_bytes,
     DWORD  payload_size
 );
 
 /*
- * jocky_hijack_thread_by_tid
+ * dorm_hijack_thread_by_tid
  * ===========================
- * Identical to jocky_hijack_thread but the caller supplies target_tid
+ * Identical to dorm_hijack_thread but the caller supplies target_tid
  * directly, skipping CreateToolhelp32Snapshot entirely.
  *
  * Preferred when injecting into a freshly-spawned process:
  *   PROCESS_INFORMATION pi;
  *   CreateProcessW(..., &pi);
  *   Sleep(100);  // let loader finish
- *   jocky_hijack_thread_by_tid(pi.dwProcessId, pi.dwThreadId, payload, size);
+ *   dorm_hijack_thread_by_tid(pi.dwProcessId, pi.dwThreadId, payload, size);
  *
  * Parameters:
  *   target_pid    — PID of the target process
@@ -74,7 +74,7 @@ BOOL jocky_hijack_thread(
  *
  * Returns TRUE on success, FALSE on failure (call GetLastError for detail).
  */
-BOOL jocky_hijack_thread_by_tid(
+BOOL dorm_hijack_thread_by_tid(
     DWORD  target_pid,
     DWORD  target_tid,
     LPBYTE payload_bytes,

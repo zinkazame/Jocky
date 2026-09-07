@@ -1,5 +1,5 @@
 /*
- * test_hijack.c — JOCKY Phase 11: Thread Hijacking Verification
+ * test_hijack.c — DORM Phase 11: Thread Hijacking Verification
  * execution_engine/thread_hijacker/test_hijack.c
  *
  * Spawns notepad.exe, hijacks its main thread to execute a minimal
@@ -104,7 +104,7 @@ static void attach_console_for_elevated_child(void)
     freopen_s(&fp, "CONOUT$", "w", stderr);
 
     /* Optional: set a readable console title */
-    SetConsoleTitleW(L"JOCKY Phase 11 — Elevated");
+    SetConsoleTitleW(L"DORM Phase 11 — Elevated");
 }
 
 /* ============================================================
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
         self_elevate();  /* does not return */
     }
 
-    printf("JOCKY Phase 11 -- Thread Hijacking Verification\n");
+    printf("DORM Phase 11 -- Thread Hijacking Verification\n");
     printf("=================================================\n\n");
 
     /* ── 0c. Enable SeDebugPrivilege ── */
@@ -293,7 +293,7 @@ int main(int argc, char **argv)
     printf("Hijacking thread in notepad...\n");
     fflush(stdout);
 
-    BOOL ok = jocky_hijack_thread_by_tid(
+    BOOL ok = dorm_hijack_thread_by_tid(
         pi.dwProcessId,
         pi.dwThreadId,
         payload,

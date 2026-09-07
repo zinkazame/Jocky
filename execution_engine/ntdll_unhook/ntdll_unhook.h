@@ -13,7 +13,7 @@
  * Call order in test_phase12.c:
  *   unhook_ntdll()   ← wipe hooks
  *   sgx_init()       ← now sees clean stubs, extracts real SSNs
- *   jocky_hijack_*   ← thread ops through restored ntdll
+ *   dorm_hijack_*   ← thread ops through restored ntdll
  */
 #pragma once
 #include <windows.h>

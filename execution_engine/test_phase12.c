@@ -1,5 +1,5 @@
 /*
- * test_phase12.c — JOCKY Phase 12: All-5-Enhancement Integration Test
+ * test_phase12.c — DORM Phase 12: All-5-Enhancement Integration Test
  * execution_engine/test_phase12.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -10,7 +10,7 @@
  *   E1  (stub is 80 bytes)      — baked into hijack.c
  *   E2  (thread scoring)        — baked into find_best_thread() in hijack.c
  *   E5  rdll_stage + build      — prepare LoadLibraryA PIC payload
- *       jocky_hijack_thread(pid, payload, size)   <-- scored selection
+ *       dorm_hijack_thread(pid, payload, size)   <-- scored selection
  *
  * DLL injected: winmm.dll (Windows multimedia — present on every Windows
  * install, safe to double-load since LoadLibraryA is ref-counted).
@@ -71,7 +71,7 @@ static void attach_console(void)
     FILE *fp = NULL;
     freopen_s(&fp, "CONOUT$", "w", stdout);
     freopen_s(&fp, "CONOUT$", "w", stderr);
-    SetConsoleTitleW(L"JOCKY Phase 12");
+    SetConsoleTitleW(L"DORM Phase 12");
 }
 
 static BOOL enable_debug_privilege(void)
@@ -119,7 +119,7 @@ int main(int argc, char **argv)
     if (elevated_child) attach_console();
     if (!is_elevated()) { printf("[*] requesting UAC elevation\n"); self_elevate(); }
 
-    printf("JOCKY Phase 12 -- All-5-Enhancement Integration\n");
+    printf("DORM Phase 12 -- All-5-Enhancement Integration\n");
     printf("================================================\n\n");
 
     /* ── E4: unhook ntdll ── */
@@ -210,7 +210,7 @@ int main(int argc, char **argv)
 
     /* ── E1+E2: hijack — scored thread selection, NOT pi.dwThreadId ──
      *
-     * jocky_hijack_thread() calls find_best_thread() which queries
+     * dorm_hijack_thread() calls find_best_thread() which queries
      * NtQuerySystemInformation and scores every thread by ThreadState +
      * WaitReason.  Terminating/non-Waiting threads score ≤ -200 and are
      * skipped.  The WinUI3 message loop thread will be in WrUserRequest
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
            pi.dwProcessId);
     fflush(stdout);
 
-    BOOL ok = jocky_hijack_thread(
+    BOOL ok = dorm_hijack_thread(
         pi.dwProcessId,
         payload,
         pay_size
@@ -238,10 +238,32 @@ int main(int argc, char **argv)
     }
     printf("[hijack] ok\n\n");
 
-    /* ── Verify: winmm present in notepad's module list ── */
-    printf("[verify] Checking notepad for winmm.dll...  ");
+    /* ── Verify: dump full module list, then check for winmm ── */
+    Sleep(300);   /* give loader a moment to finalise */
+
+    printf("[verify] module list for pid=%lu:\n", pi.dwProcessId);
     fflush(stdout);
-    Sleep(200);   /* give loader a moment to complete */
+    {
+        HANDLE sn = CreateToolhelp32Snapshot(
+            TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pi.dwProcessId);
+        if (sn == INVALID_HANDLE_VALUE) {
+            printf("  snapshot FAILED error=%lu\n", GetLastError());
+        } else {
+            MODULEENTRY32 m = { .dwSize = sizeof(m) };
+            int count = 0;
+            if (Module32First(sn, &m)) {
+                do {
+                    printf("  [%3d] %s\n", count, m.szModule);
+                    count++;
+                } while (Module32Next(sn, &m));
+            }
+            printf("  total: %d modules\n", count);
+            CloseHandle(sn);
+        }
+    }
+
+    printf("[verify] Checking for winmm.dll...  ");
+    fflush(stdout);
     if (has_module(pi.dwProcessId, "winmm.dll")) {
         printf("FOUND  ← LoadLibraryA stub executed cleanly\n");
     } else {

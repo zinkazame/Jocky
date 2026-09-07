@@ -1,1 +1,1 @@
-"""Jocky entry point placeholder."""
+"""Dorm entry point placeholder."""

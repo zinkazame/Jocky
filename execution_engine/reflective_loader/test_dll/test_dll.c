@@ -1,5 +1,5 @@
 /*
- * JOCKY — Phase 10 test DLL (LoadLibraryA loader)
+ * DORM — Phase 10 test DLL (LoadLibraryA loader)
  * =================================================
  * On DLL_PROCESS_ATTACH, writes a marker file.
  * Also exports a function that takes a file path and loads it via LoadLibraryA.
@@ -7,7 +7,7 @@
 
 #include <windows.h>
 
-#define MARKER_PATH L"C:\\Windows\\Temp\\jocky_reflect_test.txt"
+#define MARKER_PATH L"C:\\Windows\\Temp\\dorm_reflect_test.txt"
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
@@ -22,7 +22,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             FILE_ATTRIBUTE_NORMAL, NULL
         );
         if (hf != INVALID_HANDLE_VALUE) {
-            const char msg[] = "JOCKY Phase 10 reflective injection: DllMain ran.\r\n";
+            const char msg[] = "DORM Phase 10 reflective injection: DllMain ran.\r\n";
             DWORD written = 0;
             WriteFile(hf, msg, sizeof(msg) - 1, &written, NULL);
             CloseHandle(hf);

