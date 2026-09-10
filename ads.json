@@ -1,0 +1,12 @@
+{
+  "collector": "fs_ads",
+  "timestamp_utc": "2026-09-08T08:17:01Z",
+  "scan_root": "C:\\Windows\\Temp",
+  "max_files": 500,
+  "api_available": true,
+  "streams": [
+
+  ],
+  "files_scanned": 500,
+  "ads_count": 0
+}

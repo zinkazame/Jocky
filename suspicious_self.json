@@ -1,0 +1,9 @@
+{
+  "collector": "mem_acquire_suspicious",
+  "timestamp_utc": "2026-09-08T08:16:59Z",
+  "pid": 9200,
+  "ioc_regions": [
+
+  ],
+  "suspicious_count": 0
+}

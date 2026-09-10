@@ -1,0 +1,9 @@
+{
+  "collector": "mem_acquire_physical",
+  "timestamp_utc": "2026-09-08T08:16:59Z",
+  "total_physical_bytes": 8506298368,
+  "available_physical_bytes": 772820992,
+  "load_percent": 90,
+  "physical_ranges": [],
+  "note": "NtQuerySystemInformation(0x86) not available"
+}

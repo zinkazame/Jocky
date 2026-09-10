@@ -1,0 +1,19 @@
+{"pid":9200,"modules":[
+  {"base":"0x00007FF7539A0000","size":143360,"name":"test_forensics.exe","path":"D:\\Dinku\\projects\\DORM\\test_forensics.exe"},
+  {"base":"0x00007FFE7E1B0000","size":229376,"name":"IPHLPAPI.DLL","path":"C:\\Windows\\System32\\IPHLPAPI.DLL"},
+  {"base":"0x00007FFE7FB50000","size":180224,"name":"win32u.dll","path":"C:\\Windows\\System32\\win32u.dll"},
+  {"base":"0x00007FFE7FC10000","size":1380352,"name":"ucrtbase.dll","path":"C:\\Windows\\System32\\ucrtbase.dll"},
+  {"base":"0x00007FFE80080000","size":4210688,"name":"KernelBase.dll","path":"C:\\Windows\\System32\\KernelBase.dll"},
+  {"base":"0x00007FFE80490000","size":1236992,"name":"gdi32full.dll","path":"C:\\Windows\\System32\\gdi32full.dll"},
+  {"base":"0x00007FFE805C0000","size":688128,"name":"msvcp_win.dll","path":"C:\\Windows\\System32\\msvcp_win.dll"},
+  {"base":"0x00007FFE806C0000","size":7917568,"name":"shell32.dll","path":"C:\\Windows\\System32\\shell32.dll"},
+  {"base":"0x00007FFE80E50000","size":712704,"name":"msvcrt.dll","path":"C:\\Windows\\System32\\msvcrt.dll"},
+  {"base":"0x00007FFE80FC0000","size":225280,"name":"imm32.dll","path":"C:\\Windows\\System32\\imm32.dll"},
+  {"base":"0x00007FFE81B60000","size":1167360,"name":"rpcrt4.dll","path":"C:\\Windows\\System32\\rpcrt4.dll"},
+  {"base":"0x00007FFE81D80000","size":790528,"name":"advapi32.dll","path":"C:\\Windows\\System32\\advapi32.dll"},
+  {"base":"0x00007FFE81E50000","size":843776,"name":"kernel32.dll","path":"C:\\Windows\\System32\\kernel32.dll"},
+  {"base":"0x00007FFE82130000","size":196608,"name":"gdi32.dll","path":"C:\\Windows\\System32\\gdi32.dll"},
+  {"base":"0x00007FFE82430000","size":716800,"name":"sechost.dll","path":"C:\\Windows\\System32\\sechost.dll"},
+  {"base":"0x00007FFE824E0000","size":1880064,"name":"user32.dll","path":"C:\\Windows\\System32\\user32.dll"},
+  {"base":"0x00007FFE82940000","size":2535424,"name":"ntdll.dll","path":"C:\\Windows\\System32\\ntdll.dll"}
+]}
