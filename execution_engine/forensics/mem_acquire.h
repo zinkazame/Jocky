@@ -1,5 +1,5 @@
-/*
- * mem_acquire.h — DORM Phase 13.2: Memory Acquisition Collector
+﻿/*
+ * mem_acquire.h — JOCKY Phase 13.2: Memory Acquisition Collector
  * execution_engine/forensics/mem_acquire.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -18,7 +18,7 @@
 #include <windows.h>
 
 /*
- * dorm_map_vad
+ * JOCKY_map_vad
  * ============
  * Walks the full virtual address space of target_pid via VirtualQueryEx.
  * Every MEMORY_BASIC_INFORMATION region is emitted as a JSON object.
@@ -27,10 +27,10 @@
  *
  * Returns region count on success, -1 on failure.
  */
-int dorm_map_vad(DWORD target_pid, const char *output_path);
+int JOCKY_map_vad(DWORD target_pid, const char *output_path);
 
 /*
- * dorm_dump_suspicious
+ * JOCKY_dump_suspicious
  * ====================
  * Scans the VAD of target_pid for injection IOCs:
  *   MEM_PRIVATE + any PAGE_EXECUTE_* protection
@@ -44,13 +44,13 @@ int dorm_map_vad(DWORD target_pid, const char *output_path);
  *
  * Returns suspicious region count, -1 on failure.
  */
-int dorm_dump_suspicious(DWORD       target_pid,
+int JOCKY_dump_suspicious(DWORD       target_pid,
                          const char *output_path,
                          const char *output_dir,
                          SIZE_T      dump_cap);
 
 /*
- * dorm_read_region
+ * JOCKY_read_region
  * ================
  * Reads exactly `size` bytes from target_pid starting at base_va.
  * Writes raw bytes to output_path (binary mode).
@@ -58,13 +58,13 @@ int dorm_dump_suspicious(DWORD       target_pid,
  *
  * Returns bytes read on success, -1 on failure.
  */
-SSIZE_T dorm_read_region(DWORD       target_pid,
+SSIZE_T JOCKY_read_region(DWORD       target_pid,
                           ULONG_PTR   base_va,
                           SIZE_T      size,
                           const char *output_path);
 
 /*
- * dorm_physical_ranges
+ * JOCKY_physical_ranges
  * ====================
  * Enumerates physical memory ranges via
  * NtQuerySystemInformation(SystemPhysicalMemoryInformation).
@@ -73,4 +73,4 @@ SSIZE_T dorm_read_region(DWORD       target_pid,
  *
  * Returns range count on success (≥1 even on fallback), -1 on failure.
  */
-int dorm_physical_ranges(const char *output_path);
+int JOCKY_physical_ranges(const char *output_path);

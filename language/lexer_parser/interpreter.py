@@ -1,5 +1,5 @@
-"""
-DORM Forensic Language — Interpreter  (Phase 4)
+﻿"""
+JOCKY Forensic Language — Interpreter  (Phase 4)
 =================================================
 Single responsibility: walk a validated parse tree and execute each
 operation by dispatching to a stub function.
@@ -39,7 +39,7 @@ class ExecutionContext:
 
 def interpret(tree: Tree) -> list[dict]:
     """
-    Walk a validated DORM parse tree and execute each operation.
+    Walk a validated JOCKY parse tree and execute each operation.
 
     Parameters
     ----------
@@ -304,18 +304,18 @@ def _get_string_value(node: Tree) -> str:
 
 def _main() -> None:
     """
-    Usage: python interpreter.py <script.drm>
+    Usage: python interpreter.py <script.jky>
     Full pipeline: parse → validate → interpret.
     """
     _pkg = Path(__file__).resolve().parent
     if str(_pkg) not in sys.path:
         sys.path.insert(0, str(_pkg))
 
-    from parser    import DormParseError, parse_file       # noqa: PLC0415
-    from validator import DormValidationError, validate    # noqa: PLC0415
+    from parser    import JOCKYParseError, parse_file       # noqa: PLC0415
+    from validator import JOCKYValidationError, validate    # noqa: PLC0415
 
     if len(sys.argv) != 2:
-        print("Usage: python interpreter.py <script.drm>", file=sys.stderr)
+        print("Usage: python interpreter.py <script.jky>", file=sys.stderr)
         sys.exit(1)
 
     script_path = Path(sys.argv[1])
@@ -325,13 +325,13 @@ def _main() -> None:
 
     try:
         tree = parse_file(script_path)
-    except DormParseError as exc:
+    except JOCKYParseError as exc:
         print(f"Parse error:\n  {exc}", file=sys.stderr)
         sys.exit(1)
 
     try:
         validate(tree)
-    except DormValidationError as exc:
+    except JOCKYValidationError as exc:
         print(f"Validation error:\n  {exc}", file=sys.stderr)
         sys.exit(1)
 

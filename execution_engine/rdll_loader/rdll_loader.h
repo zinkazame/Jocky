@@ -1,11 +1,11 @@
-/*
+﻿/*
  * rdll_loader.h — Reflective DLL Loader (Enhancement 5)
  * execution_engine/rdll_loader/rdll_loader.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
  *
  * Injects a DLL into a target process without CreateRemoteThread.
- * Delivery mechanism: thread hijack (dorm_hijack_thread_by_tid).
+ * Delivery mechanism: thread hijack (JOCKY_hijack_thread_by_tid).
  *
  * Memory layout written to target RWX page by rdll_build_payload():
  *
@@ -47,7 +47,7 @@ BOOL rdll_stage_to_temp(LPBYTE  dll_image,
  * *payload_out — HeapAlloc'd buffer; caller HeapFree's after hijack completes.
  * *size_out    — total payload bytes.
  *
- * Pass *payload_out / *size_out directly to dorm_hijack_thread_by_tid.
+ * Pass *payload_out / *size_out directly to JOCKY_hijack_thread_by_tid.
  */
 BOOL rdll_build_payload(const char *dll_path,
                         LPBYTE     *payload_out,

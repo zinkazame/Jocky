@@ -1,5 +1,5 @@
-/*
- * forensics.h — DORM Forensic Primitives — Unified Header
+﻿/*
+ * forensics.h — JOCKY Forensic Primitives — Unified Header
  * execution_engine/forensics/forensics.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -18,8 +18,8 @@
 #pragma once
 #include <windows.h>
 
-#define DORM_FORENSICS_VERSION  "1.0.0"
-#define DORM_FORENSICS_PHASE    13
+#define JOCKY_FORENSICS_VERSION  "1.0.0"
+#define JOCKY_FORENSICS_PHASE    13
 
 /* available now */
 #include "proc_analysis.h"

@@ -1,7 +1,7 @@
 """
-DORM Forensic Language — Parser  (Phase 2)
+JOCKY Forensic Language — Parser  (Phase 2)
 ============================================
-Single responsibility: take a .drm script string, run it through the grammar,
+Single responsibility: take a .jky script string, run it through the grammar,
 and return a clean parse tree OR raise a precise, human-readable error.
 
 No validation logic here — that is Phase 3.
@@ -19,21 +19,21 @@ from lark.indenter import Indenter
 
 # ─── Grammar path ─────────────────────────────────────────────────────────────
 # parser.py lives at  language/lexer_parser/parser.py
-# grammar lives at    language/grammar/dorm.lark
+# grammar lives at    language/grammar/JOCKY.lark
 # Resolve relative to this file so the module works regardless of cwd.
 
-_GRAMMAR_PATH = Path(__file__).resolve().parent.parent / "grammar" / "dorm.lark"
+_GRAMMAR_PATH = Path(__file__).resolve().parent.parent / "grammar" / "JOCKY.lark"
 
 
 # ─── Indenter ─────────────────────────────────────────────────────────────────
 
-class DormIndenter(Indenter):
+class JOCKYIndenter(Indenter):
     """
     Post-lexer that turns leading-whitespace changes into virtual
     _INDENT / _DEDENT tokens before the LALR parser sees the stream.
 
     Why OPEN/CLOSE_PAREN_types are empty:
-        DORM parentheses are string literals ("(" / ")") not named terminals,
+        JOCKY parentheses are string literals ("(" / ")") not named terminals,
         so Lark gives them no usable token-type name.  Argument lists also
         always fit on one line, so paren-context suppression is not needed.
 
@@ -62,7 +62,7 @@ def _build_parser() -> Lark:
     return Lark(
         grammar_text,
         parser="lalr",
-        postlex=DormIndenter(),
+        postlex=JOCKYIndenter(),
         propagate_positions=True,   # attach line/col to every tree node
     )
 
@@ -72,9 +72,9 @@ _PARSER: Lark = _build_parser()
 
 # ─── Public exception ─────────────────────────────────────────────────────────
 
-class DormParseError(Exception):
+class JOCKYParseError(Exception):
     """
-    Raised when a .drm script is syntactically invalid.
+    Raised when a .jky script is syntactically invalid.
     Always contains a human-readable message with line and column numbers.
     """
     pass
@@ -84,12 +84,12 @@ class DormParseError(Exception):
 
 def parse(text: str) -> Tree:
     """
-    Parse a DORM script string.
+    Parse a JOCKY script string.
 
     Parameters
     ----------
     text : str
-        Raw content of a .drm file (UTF-8).
+        Raw content of a .jky file (UTF-8).
 
     Returns
     -------
@@ -99,7 +99,7 @@ def parse(text: str) -> Tree:
 
     Raises
     ------
-    DormParseError
+    JOCKYParseError
         On any syntax error.  Message includes line, column, and what
         the parser expected at the point of failure.
     """
@@ -107,14 +107,14 @@ def parse(text: str) -> Tree:
         return _PARSER.parse(text)
 
     except UnexpectedCharacters as exc:
-        raise DormParseError(
+        raise JOCKYParseError(
             f"Unexpected character at line {exc.line}, col {exc.column}: "
             f"'{exc.char}'\n"
             f"  Expected: {_fmt_expected(exc.allowed)}"
         ) from exc
 
     except UnexpectedToken as exc:
-        raise DormParseError(
+        raise JOCKYParseError(
             f"Unexpected token at line {exc.line}, col {exc.column}: "
             f"'{exc.token}' ({exc.token.type})\n"
             f"  Expected: {_fmt_expected(exc.expected)}"
@@ -122,14 +122,14 @@ def parse(text: str) -> Tree:
 
     except UnexpectedInput as exc:
         # Catch-all for any other Lark parse failure
-        raise DormParseError(
+        raise JOCKYParseError(
             f"Parse error near line {exc.line}, col {exc.column}."
         ) from exc
 
 
 def parse_file(path: str | Path) -> Tree:
     """
-    Parse a .drm script from disk.
+    Parse a .jky script from disk.
 
     Parameters
     ----------
@@ -142,10 +142,10 @@ def parse_file(path: str | Path) -> Tree:
     Raises
     ------
     FileNotFoundError
-    DormParseError
+    JOCKYParseError
     """
     path = Path(path)
-    return parse(path.read_text(encoding="utf-8"))
+    return parse(path.read_text(encoding="utf-8-sig"))
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -165,13 +165,13 @@ def _fmt_expected(allowed: set[str] | frozenset[str] | None) -> str:
 
 def _main() -> None:
     """
-    Usage:  python parser.py <script.drm>
+    Usage:  python parser.py <script.jky>
 
     Prints the parse tree on success, a precise error message on failure.
     Exit code 0 = success, 1 = error.
     """
     if len(sys.argv) != 2:
-        print("Usage: python parser.py <script.drm>", file=sys.stderr)
+        print("Usage: python parser.py <script.jky>", file=sys.stderr)
         sys.exit(1)
 
     script_path = Path(sys.argv[1])
@@ -182,7 +182,7 @@ def _main() -> None:
 
     try:
         tree = parse_file(script_path)
-    except DormParseError as exc:
+    except JOCKYParseError as exc:
         print(f"Parse error:\n  {exc}", file=sys.stderr)
         sys.exit(1)
 

@@ -1,5 +1,5 @@
-/*
- * mem_acquire.c — DORM Phase 13.2: Memory Acquisition Collector
+﻿/*
+ * mem_acquire.c — JOCKY Phase 13.2: Memory Acquisition Collector
  * execution_engine/forensics/mem_acquire.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -47,7 +47,7 @@ typedef struct {
         ULONG_PTR BasePage;   /* first PFN of run */
         ULONG_PTR PageCount;  /* pages in run     */
     } Run[1];
-} DORM_PHYS_MEM_DESC;
+} JOCKY_PHYS_MEM_DESC;
 
 /* ============================================================
    INTERNAL HELPERS (shared with proc_analysis)
@@ -159,7 +159,7 @@ static BOOL is_executable(DWORD p)
    VAD WALK
    ============================================================ */
 
-int dorm_map_vad(DWORD pid, const char *output_path)
+int JOCKY_map_vad(DWORD pid, const char *output_path)
 {
     /* *the VAD: every promise the allocator ever made, laid out in address order* */
 
@@ -253,7 +253,7 @@ int dorm_map_vad(DWORD pid, const char *output_path)
    SUSPICIOUS REGION DUMP
    ============================================================ */
 
-int dorm_dump_suspicious(DWORD       pid,
+int JOCKY_dump_suspicious(DWORD       pid,
                           const char *output_path,
                           const char *output_dir,
                           SIZE_T      dump_cap)
@@ -363,7 +363,7 @@ int dorm_dump_suspicious(DWORD       pid,
    RAW REGION READ
    ============================================================ */
 
-SSIZE_T dorm_read_region(DWORD       pid,
+SSIZE_T JOCKY_read_region(DWORD       pid,
                           ULONG_PTR   base_va,
                           SIZE_T      size,
                           const char *output_path)
@@ -409,7 +409,7 @@ SSIZE_T dorm_read_region(DWORD       pid,
    PHYSICAL MEMORY RANGES
    ============================================================ */
 
-int dorm_physical_ranges(const char *output_path)
+int JOCKY_physical_ranges(const char *output_path)
 {
     /* *physical memory: the one map the OS can't lie about* */
 
@@ -443,7 +443,7 @@ int dorm_physical_ranges(const char *output_path)
         ms.dwMemoryLoad);
 
     /* ── physical runs via NtQuerySystemInformation(0x86) ── */
-    ULONG    buf_sz = sizeof(DORM_PHYS_MEM_DESC) + 256 * sizeof(ULONG_PTR) * 2;
+    ULONG    buf_sz = sizeof(JOCKY_PHYS_MEM_DESC) + 256 * sizeof(ULONG_PTR) * 2;
     BYTE    *buf    = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, buf_sz);
 
     int      range_count = 0;
@@ -473,7 +473,7 @@ int dorm_physical_ranges(const char *output_path)
     }
 
     if (buf && nt == STATUS_SUCCESS) {
-        DORM_PHYS_MEM_DESC *pmd = (DORM_PHYS_MEM_DESC *)buf;
+        JOCKY_PHYS_MEM_DESC *pmd = (JOCKY_PHYS_MEM_DESC *)buf;
         fprintf(fp,
             "  \"physical_page_count\": %zu,\n"
             "  \"physical_ranges\": [\n",

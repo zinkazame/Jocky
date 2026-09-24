@@ -1,5 +1,5 @@
-/*
- * net_state.h — DORM Phase 13.3: Network State Collector
+﻿/*
+ * net_state.h — JOCKY Phase 13.3: Network State Collector
  * execution_engine/forensics/net_state.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -17,7 +17,7 @@
 #include <windows.h>
 
 /*
- * dorm_enum_connections
+ * JOCKY_enum_connections
  * =====================
  * Enumerates all TCP (v4 + v6) and UDP (v4 + v6) endpoints via
  * GetExtendedTcpTable / GetExtendedUdpTable with TCP_TABLE_OWNER_PID_ALL.
@@ -26,10 +26,10 @@
  * Writes JSON to output_path (or stdout if "-").
  * Returns total connection+endpoint count, -1 on failure.
  */
-int dorm_enum_connections(const char *output_path);
+int JOCKY_enum_connections(const char *output_path);
 
 /*
- * dorm_dns_cache
+ * JOCKY_dns_cache
  * ==============
  * Reads the Windows DNS resolver cache via the undocumented but stable
  * DnsGetCacheDataTable export in dnsapi.dll (dynamically resolved).
@@ -38,13 +38,13 @@ int dorm_enum_connections(const char *output_path);
  * Writes JSON to output_path (or stdout if "-").
  * Returns cache entry count, -1 on failure.
  */
-int dorm_dns_cache(const char *output_path);
+int JOCKY_dns_cache(const char *output_path);
 
 /*
- * dorm_net_report
+ * JOCKY_net_report
  * ===============
- * Convenience wrapper: runs dorm_enum_connections + dorm_dns_cache and
+ * Convenience wrapper: runs JOCKY_enum_connections + JOCKY_dns_cache and
  * writes a combined JSON report to output_path.
  * Returns TRUE on success.
  */
-BOOL dorm_net_report(const char *output_path);
+BOOL JOCKY_net_report(const char *output_path);

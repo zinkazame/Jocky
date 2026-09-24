@@ -1,4 +1,4 @@
-# DORM — Post-Parse Validation Rules
+﻿# JOCKY — Post-Parse Validation Rules
 # Version: 0.1.0
 #
 # These three constraints cannot be expressed in Lark's grammar rules.
@@ -49,7 +49,7 @@ VALID_ORDER = ["memory", "network", "system", "disk"]
 def validate_section_order(section_names: list[str]):
     positions = [VALID_ORDER.index(name) for name in section_names]
     if positions != sorted(positions):
-        raise DormValidationError("Sections are out of volatility order.")
+        raise JOCKYValidationError("Sections are out of volatility order.")
 ```
 
 ---
@@ -88,7 +88,7 @@ def validate_no_duplicate_sections(section_names: list[str]):
     seen = set()
     for name in section_names:
         if name in seen:
-            raise DormValidationError(f"Duplicate section: '{name}'")
+            raise JOCKYValidationError(f"Duplicate section: '{name}'")
         seen.add(name)
 ```
 
@@ -138,7 +138,7 @@ COMPAT = {
 
 def validate_command_primitive(command: str, primitive: str, line: int):
     if primitive not in COMPAT[command]:
-        raise DormValidationError(
+        raise JOCKYValidationError(
             f"Line {line}: '{command}' is not compatible with '{primitive}'."
         )
 ```

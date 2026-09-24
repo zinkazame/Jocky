@@ -1,4 +1,4 @@
-#include "unhook.h"
+﻿#include "unhook.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -28,7 +28,7 @@ pe_find_text_section(PIMAGE_NT_HEADERS64 nt)
     return NULL;
 }
 
-BOOL dorm_unhook_ntdll(void)
+BOOL JOCKY_unhook_ntdll(void)
 {
     BOOL   result      = FALSE;
     HANDLE file_handle = INVALID_HANDLE_VALUE;

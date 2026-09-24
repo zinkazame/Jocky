@@ -1,5 +1,5 @@
-/*
- * proc_analysis.h — DORM Phase 13.1: Process Analysis Collector
+﻿/*
+ * proc_analysis.h — JOCKY Phase 13.1: Process Analysis Collector
  * execution_engine/forensics/proc_analysis.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -20,7 +20,7 @@
 #include <windows.h>
 
 /*
- * dorm_enum_processes
+ * JOCKY_enum_processes
  * ===================
  * Enumerates all running processes and their threads via
  * NtQuerySystemInformation(SystemProcessInformation).
@@ -29,10 +29,10 @@
  *
  * Returns process count on success, -1 on failure.
  */
-int dorm_enum_processes(const char *output_path);
+int JOCKY_enum_processes(const char *output_path);
 
 /*
- * dorm_enum_modules
+ * JOCKY_enum_modules
  * =================
  * Walks the virtual address space of target_pid via VirtualQueryEx,
  * identifies MEM_IMAGE|MEM_COMMIT regions, resolves file paths via
@@ -41,10 +41,10 @@ int dorm_enum_processes(const char *output_path);
  *
  * Returns module count on success, -1 on failure.
  */
-int dorm_enum_modules(DWORD target_pid, const char *output_path);
+int JOCKY_enum_modules(DWORD target_pid, const char *output_path);
 
 /*
- * dorm_detect_hollow
+ * JOCKY_detect_hollow
  * ==================
  * Checks whether target_pid's main image has been hollowed.
  *
@@ -58,15 +58,15 @@ int dorm_enum_modules(DWORD target_pid, const char *output_path);
  * Sets *is_hollow on return.
  * Returns TRUE if check completed, FALSE on access/read failure (conservative).
  */
-BOOL dorm_detect_hollow(DWORD target_pid, BOOL *is_hollow);
+BOOL JOCKY_detect_hollow(DWORD target_pid, BOOL *is_hollow);
 
 /*
- * dorm_full_process_report
+ * JOCKY_full_process_report
  * ========================
- * Convenience wrapper: runs dorm_enum_processes (which internally
- * calls dorm_detect_hollow on every process) and writes the full
+ * Convenience wrapper: runs JOCKY_enum_processes (which internally
+ * calls JOCKY_detect_hollow on every process) and writes the full
  * JSON report to output_path.
  *
  * Returns TRUE on success.
  */
-BOOL dorm_full_process_report(const char *output_path);
+BOOL JOCKY_full_process_report(const char *output_path);

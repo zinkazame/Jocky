@@ -1,5 +1,5 @@
-/*
- * test_forensics.c — DORM Phase 13.1 + 13.2: Forensic Collector Verification
+﻿/*
+ * test_forensics.c — JOCKY Phase 13.1 + 13.2: Forensic Collector Verification
  * execution_engine/forensics/test_forensics.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -62,7 +62,7 @@ static void attach_console(void)
     AllocConsole(); FILE *fp = NULL;
     freopen_s(&fp, "CONOUT$", "w", stdout);
     freopen_s(&fp, "CONOUT$", "w", stderr);
-    SetConsoleTitleW(L"DORM Phase 13 -- Forensic Collectors");
+    SetConsoleTitleW(L"JOCKY Phase 13 -- Forensic Collectors");
 }
 
 static BOOL enable_debug_privilege(void)
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
     if (elevated_child) attach_console();
     if (!is_elevated()) { printf("[*] requesting UAC elevation\n"); self_elevate(); }
 
-    printf("DORM Phase 13 -- Forensic Collector Verification\n");
+    printf("JOCKY Phase 13 -- Forensic Collector Verification\n");
     printf("=================================================\n\n");
 
     /* ── SeDebugPrivilege ── */
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
     printf("        output -> procs.json\n");
     fflush(stdout);
 
-    int proc_count = dorm_enum_processes("procs.json");
+    int proc_count = JOCKY_enum_processes("procs.json");
     if (proc_count < 0) { printf("[13.1a] FAILED\n"); goto bail; }
     printf("[13.1a] ok -- %d processes enumerated\n\n", proc_count);
 
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
     printf("        output -> modules_self.json\n");
     fflush(stdout);
 
-    int mod_count = dorm_enum_modules(GetCurrentProcessId(), "modules_self.json");
+    int mod_count = JOCKY_enum_modules(GetCurrentProcessId(), "modules_self.json");
     if (mod_count < 0) { printf("[13.1b] FAILED\n"); goto bail; }
     printf("[13.1b] ok -- %d modules found\n\n", mod_count);
 
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
 
     if (lsass_pid) {
         BOOL is_hollow = FALSE;
-        BOOL checked   = dorm_detect_hollow(lsass_pid, &is_hollow);
+        BOOL checked   = JOCKY_detect_hollow(lsass_pid, &is_hollow);
         printf("[13.1c] lsass.exe (PID=%lu): hollow=%s  (check %s)\n\n",
                lsass_pid,
                is_hollow ? "TRUE  <- SUSPICIOUS" : "false",
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
     printf("        output -> vad_self.json\n");
     fflush(stdout);
 
-    int vad_count = dorm_map_vad(GetCurrentProcessId(), "vad_self.json");
+    int vad_count = JOCKY_map_vad(GetCurrentProcessId(), "vad_self.json");
     if (vad_count < 0) { printf("[13.2a] FAILED\n"); goto bail; }
     printf("[13.2a] ok -- %d regions mapped\n\n", vad_count);
 
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
     printf("        output -> suspicious_self.json\n");
     fflush(stdout);
 
-    int sus_count = dorm_dump_suspicious(GetCurrentProcessId(),
+    int sus_count = JOCKY_dump_suspicious(GetCurrentProcessId(),
                                           "suspicious_self.json",
                                           NULL,     /* no .bin dumps */
                                           0x1000);  /* cap 4 KB per region */
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
     printf("        output -> phys_ranges.json\n");
     fflush(stdout);
 
-    int phys_count = dorm_physical_ranges("phys_ranges.json");
+    int phys_count = JOCKY_physical_ranges("phys_ranges.json");
     if (phys_count < 0) { printf("[13.2c] FAILED\n"); goto bail; }
     printf("[13.2c] ok -- %d physical range(s) enumerated\n\n", phys_count);
 
@@ -209,7 +209,7 @@ int main(int argc, char **argv)
     printf("        output -> connections.json\n");
     fflush(stdout);
 
-    int conn_count = dorm_enum_connections("connections.json");
+    int conn_count = JOCKY_enum_connections("connections.json");
     if (conn_count < 0) { printf("[13.3a] FAILED\n"); goto bail; }
     printf("[13.3a] ok -- %d endpoints enumerated\n\n", conn_count);
 
@@ -218,7 +218,7 @@ int main(int argc, char **argv)
     printf("        output -> dns_cache.json\n");
     fflush(stdout);
 
-    int dns_count = dorm_dns_cache("dns_cache.json");
+    int dns_count = JOCKY_dns_cache("dns_cache.json");
     if (dns_count < 0) { printf("[13.3b] FAILED\n"); goto bail; }
     printf("[13.3b] ok -- %d DNS cache entries\n\n", dns_count);
 
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
     printf("        output -> persistence.json\n");
     fflush(stdout);
 
-    int persist_count = dorm_enum_persistence("persistence.json");
+    int persist_count = JOCKY_enum_persistence("persistence.json");
     if (persist_count < 0) { printf("[13.4a] FAILED\n"); goto bail; }
     printf("[13.4a] ok -- %d persistence entries found\n\n", persist_count);
 
@@ -245,7 +245,7 @@ int main(int argc, char **argv)
     printf("        output -> services.json\n");
     fflush(stdout);
 
-    int svc_count = dorm_enum_services_reg("services.json");
+    int svc_count = JOCKY_enum_services_reg("services.json");
     if (svc_count < 0) { printf("[13.4b] FAILED\n"); goto bail; }
     printf("[13.4b] ok -- %d services enumerated\n\n", svc_count);
 
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
     printf("        output -> typed_urls.json\n");
     fflush(stdout);
 
-    int url_count = dorm_enum_typed_urls("typed_urls.json");
+    int url_count = JOCKY_enum_typed_urls("typed_urls.json");
     if (url_count < 0) { printf("[13.4c] FAILED\n"); goto bail; }
     printf("[13.4c] ok -- %d typed URL(s) found\n\n", url_count);
 
@@ -274,7 +274,7 @@ int main(int argc, char **argv)
     printf("        output -> mft_sample.json\n");
     fflush(stdout);
 
-    int mft_count = dorm_scan_mft_sample("C", 500, "mft_sample.json");
+    int mft_count = JOCKY_scan_mft_sample("C", 500, "mft_sample.json");
     if (mft_count < 0) { printf("[13.5a] FAILED\n"); goto bail; }
     printf("[13.5a] ok -- %d MFT records parsed\n\n", mft_count);
 
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
     printf("        output -> prefetch.json\n");
     fflush(stdout);
 
-    int pf_count = dorm_enum_prefetch("prefetch.json");
+    int pf_count = JOCKY_enum_prefetch("prefetch.json");
     if (pf_count < 0) { printf("[13.5b] FAILED\n"); goto bail; }
     printf("[13.5b] ok -- %d prefetch entries found\n\n", pf_count);
 
@@ -292,7 +292,7 @@ int main(int argc, char **argv)
     printf("        output -> ads.json\n");
     fflush(stdout);
 
-    int ads_count = dorm_detect_ads("C:\\Windows\\Temp", 500, "ads.json");
+    int ads_count = JOCKY_detect_ads("C:\\Windows\\Temp", 500, "ads.json");
     if (ads_count < 0) { printf("[13.5c] FAILED\n"); goto bail; }
     printf("[13.5c] ok -- %d ADS stream(s) detected\n\n", ads_count);
 
@@ -306,7 +306,7 @@ int main(int argc, char **argv)
        ============================================================ */
 
     printf("=================================================\n");
-    printf("DORM Phase 13 -- ALL 5 COLLECTORS PASSED\n");
+    printf("JOCKY Phase 13 -- ALL 5 COLLECTORS PASSED\n");
     printf("=================================================\n");
 
     if (elevated_child) { printf("\nPress Enter to close...\n"); getchar(); }

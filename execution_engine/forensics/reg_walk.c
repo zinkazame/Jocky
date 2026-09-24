@@ -1,5 +1,5 @@
-/*
- * reg_walk.c — DORM Phase 13.4: Registry Inspection Collector
+﻿/*
+ * reg_walk.c — JOCKY Phase 13.4: Registry Inspection Collector
  * execution_engine/forensics/reg_walk.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -7,8 +7,8 @@
  * All registry access through NT-layer functions resolved dynamically
  * from ntdll.dll — bypasses Win32 registry layer entirely.
  *
- * NT types (DORM_USTR, DORM_OA, DORM_KEY_BASIC, DORM_KVF) are
- * self-defined with DORM_ prefix to avoid winternl.h conflicts.
+ * NT types (JOCKY_USTR, JOCKY_OA, JOCKY_KEY_BASIC, JOCKY_KVF) are
+ * self-defined with JOCKY_ prefix to avoid winternl.h conflicts.
  * Binary layout is WDK-verified and identical to what the kernel expects.
  *
  * NT registry root paths:
@@ -40,24 +40,24 @@
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(s)  ((NTSTATUS)(s) >= 0)
 #endif
-#define DORM_STATUS_NO_MORE_ENTRIES  ((NTSTATUS)0x8000001AL)
-#define DORM_STATUS_BUFFER_TOO_SMALL ((NTSTATUS)0xC0000023L)
-#define DORM_STATUS_BUFFER_OVERFLOW  ((NTSTATUS)0x80000005L)
+#define JOCKY_STATUS_NO_MORE_ENTRIES  ((NTSTATUS)0x8000001AL)
+#define JOCKY_STATUS_BUFFER_TOO_SMALL ((NTSTATUS)0xC0000023L)
+#define JOCKY_STATUS_BUFFER_OVERFLOW  ((NTSTATUS)0x80000005L)
 
 /* UNICODE_STRING clone */
-typedef struct { USHORT Length, MaximumLength; PWSTR Buffer; } DORM_USTR;
+typedef struct { USHORT Length, MaximumLength; PWSTR Buffer; } JOCKY_USTR;
 
 /* OBJECT_ATTRIBUTES clone */
 typedef struct {
     ULONG     Length;
     HANDLE    RootDirectory;
-    DORM_USTR *ObjectName;
+    JOCKY_USTR *ObjectName;
     ULONG     Attributes;
     PVOID     SecurityDescriptor;
     PVOID     SecurityQualityOfService;
-} DORM_OA;
+} JOCKY_OA;
 
-#define DORM_OBJ_CASE_INSENSITIVE 0x00000040UL
+#define JOCKY_OBJ_CASE_INSENSITIVE 0x00000040UL
 
 /* KEY_BASIC_INFORMATION clone */
 typedef struct {
@@ -65,7 +65,7 @@ typedef struct {
     ULONG         TitleIndex;
     ULONG         NameLength;   /* bytes, not chars */
     WCHAR         Name[1];
-} DORM_KEY_BASIC;
+} JOCKY_KEY_BASIC;
 
 /* KEY_VALUE_FULL_INFORMATION clone */
 typedef struct {
@@ -75,18 +75,18 @@ typedef struct {
     ULONG DataLength;    /* data size in bytes                   */
     ULONG NameLength;    /* name size in bytes                   */
     WCHAR Name[1];
-} DORM_KVF;
+} JOCKY_KVF;
 
 /* KEY_INFORMATION_CLASS ordinal */
-#define DORM_KIC_BASIC   0    /* KeyBasicInformation    */
+#define JOCKY_KIC_BASIC   0    /* KeyBasicInformation    */
 /* KEY_VALUE_INFORMATION_CLASS ordinal */
-#define DORM_KVIC_FULL   1    /* KeyValueFullInformation */
+#define JOCKY_KVIC_FULL   1    /* KeyValueFullInformation */
 
 /* KEY_READ: STANDARD_RIGHTS_READ | KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS | KEY_NOTIFY */
-#define DORM_KEY_READ    0x20019UL
+#define JOCKY_KEY_READ    0x20019UL
 
 /* NT function typedefs */
-typedef NTSTATUS (NTAPI *NtOpenKey_f)    (HANDLE*, ULONG, DORM_OA*);
+typedef NTSTATUS (NTAPI *NtOpenKey_f)    (HANDLE*, ULONG, JOCKY_OA*);
 typedef NTSTATUS (NTAPI *NtEnumKey_f)    (HANDLE, ULONG, ULONG, PVOID, ULONG, ULONG*);
 typedef NTSTATUS (NTAPI *NtEnumValKey_f) (HANDLE, ULONG, ULONG, PVOID, ULONG, ULONG*);
 typedef NTSTATUS (NTAPI *NtClose_f)      (HANDLE);
@@ -132,19 +132,19 @@ static FILE *open_output(const char *path, const char *mode)
     return fp;
 }
 
-static void dorm_ustr_set(DORM_USTR *us, PCWSTR s)
+static void JOCKY_ustr_set(JOCKY_USTR *us, PCWSTR s)
 {
     us->Buffer        = (PWSTR)s;
     us->Length        = (USHORT)(wcslen(s) * sizeof(WCHAR));
     us->MaximumLength = us->Length + (USHORT)sizeof(WCHAR);
 }
 
-static void dorm_oa_init(DORM_OA *oa, DORM_USTR *name)
+static void JOCKY_oa_init(JOCKY_OA *oa, JOCKY_USTR *name)
 {
-    oa->Length                   = sizeof(DORM_OA);
+    oa->Length                   = sizeof(JOCKY_OA);
     oa->RootDirectory            = NULL;
     oa->ObjectName               = name;
-    oa->Attributes               = DORM_OBJ_CASE_INSENSITIVE;
+    oa->Attributes               = JOCKY_OBJ_CASE_INSENSITIVE;
     oa->SecurityDescriptor       = NULL;
     oa->SecurityQualityOfService = NULL;
 }
@@ -163,10 +163,10 @@ static BOOL resolve_nt(void)
 
 static HANDLE nt_open_key(PCWSTR nt_path)
 {
-    DORM_USTR us; dorm_ustr_set(&us, nt_path);
-    DORM_OA   oa; dorm_oa_init(&oa, &us);
+    JOCKY_USTR us; JOCKY_ustr_set(&us, nt_path);
+    JOCKY_OA   oa; JOCKY_oa_init(&oa, &us);
     HANDLE h = NULL;
-    return NT_SUCCESS(g_NtOpenKey(&h, DORM_KEY_READ, &oa)) ? h : NULL;
+    return NT_SUCCESS(g_NtOpenKey(&h, JOCKY_KEY_READ, &oa)) ? h : NULL;
 }
 
 /* FILETIME (100ns since 1601) → "YYYY-MM-DDTHH:MM:SSZ" */
@@ -202,10 +202,10 @@ static const char *regtype_str(ULONG t)
 }
 
 /*
- * emit_value — decode one DORM_KVF block and append a JSON object to fp.
+ * emit_value — decode one JOCKY_KVF block and append a JSON object to fp.
  * *first is cleared after the first call so subsequent calls prepend ",\n".
  */
-static void emit_value(FILE *fp, DORM_KVF *kv, BOOL *first)
+static void emit_value(FILE *fp, JOCKY_KVF *kv, BOOL *first)
 {
     char name_u8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, kv->Name, kv->NameLength / sizeof(WCHAR),
@@ -281,10 +281,10 @@ static int walk_key_values(HANDLE hKey, FILE *fp, BOOL *first_val)
 
     for (ULONG idx = 0; ; idx++) {
         ULONG needed = sizeof(buf);
-        NTSTATUS s = g_NtEnumValKey(hKey, idx, DORM_KVIC_FULL,
+        NTSTATUS s = g_NtEnumValKey(hKey, idx, JOCKY_KVIC_FULL,
                                      buf, needed, &needed);
 
-        if (s == DORM_STATUS_NO_MORE_ENTRIES) break;
+        if (s == JOCKY_STATUS_NO_MORE_ENTRIES) break;
 
         if (!NT_SUCCESS(s)) {
             /* oversized value — allocate and retry once */
@@ -292,10 +292,10 @@ static int walk_key_values(HANDLE hKey, FILE *fp, BOOL *first_val)
                 BYTE *big = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, needed);
                 if (big) {
                     ULONG needed2 = needed;
-                    s = g_NtEnumValKey(hKey, idx, DORM_KVIC_FULL,
+                    s = g_NtEnumValKey(hKey, idx, JOCKY_KVIC_FULL,
                                        big, needed2, &needed2);
                     if (NT_SUCCESS(s)) {
-                        emit_value(fp, (DORM_KVF*)big, first_val);
+                        emit_value(fp, (JOCKY_KVF*)big, first_val);
                         count++;
                     }
                     HeapFree(GetProcessHeap(), 0, big);
@@ -304,7 +304,7 @@ static int walk_key_values(HANDLE hKey, FILE *fp, BOOL *first_val)
             continue;
         }
 
-        emit_value(fp, (DORM_KVF*)buf, first_val);
+        emit_value(fp, (JOCKY_KVF*)buf, first_val);
         count++;
     }
     return count;
@@ -341,7 +341,7 @@ static BOOL get_user_sid(WCHAR *out, int out_chars)
    PERSISTENCE KEYS — Run / RunOnce (HKLM + HKCU)
    ============================================================ */
 
-int dorm_enum_persistence(const char *output_path)
+int JOCKY_enum_persistence(const char *output_path)
 {
     /* *every autorun entry: a program that decided it deserved to survive reboots* */
     if (!resolve_nt()) return -1;
@@ -425,7 +425,7 @@ int dorm_enum_persistence(const char *output_path)
    SERVICES — HKLM\SYSTEM\CurrentControlSet\Services
    ============================================================ */
 
-int dorm_enum_services_reg(const char *output_path)
+int JOCKY_enum_services_reg(const char *output_path)
 {
     if (!resolve_nt()) return -1;
 
@@ -456,12 +456,12 @@ int dorm_enum_services_reg(const char *output_path)
 
         for (ULONG idx = 0; ; idx++) {
             ULONG needed = sizeof(buf);
-            NTSTATUS s = g_NtEnumKey(hRoot, idx, DORM_KIC_BASIC,
+            NTSTATUS s = g_NtEnumKey(hRoot, idx, JOCKY_KIC_BASIC,
                                       buf, needed, &needed);
-            if (s == DORM_STATUS_NO_MORE_ENTRIES) break;
+            if (s == JOCKY_STATUS_NO_MORE_ENTRIES) break;
             if (!NT_SUCCESS(s)) continue;
 
-            DORM_KEY_BASIC *kb = (DORM_KEY_BASIC*)buf;
+            JOCKY_KEY_BASIC *kb = (JOCKY_KEY_BASIC*)buf;
             int nc = kb->NameLength / sizeof(WCHAR);
 
             char svc_name[256] = {0};
@@ -486,12 +486,12 @@ int dorm_enum_services_reg(const char *output_path)
                 BYTE vbuf[2048];
                 for (ULONG vi = 0; ; vi++) {
                     ULONG vn = sizeof(vbuf);
-                    NTSTATUS vs = g_NtEnumValKey(hSvc, vi, DORM_KVIC_FULL,
+                    NTSTATUS vs = g_NtEnumValKey(hSvc, vi, JOCKY_KVIC_FULL,
                                                   vbuf, vn, &vn);
-                    if (vs == DORM_STATUS_NO_MORE_ENTRIES) break;
+                    if (vs == JOCKY_STATUS_NO_MORE_ENTRIES) break;
                     if (!NT_SUCCESS(vs)) continue;
 
-                    DORM_KVF *kv = (DORM_KVF*)vbuf;
+                    JOCKY_KVF *kv = (JOCKY_KVF*)vbuf;
                     int vnc = kv->NameLength / sizeof(WCHAR);
                     WCHAR vname[64] = {0};
                     wcsncpy(vname, kv->Name, vnc < 63 ? vnc : 63);
@@ -551,7 +551,7 @@ int dorm_enum_services_reg(const char *output_path)
    TYPED URLS — HKCU\...\Explorer\TypedURLs
    ============================================================ */
 
-int dorm_enum_typed_urls(const char *output_path)
+int JOCKY_enum_typed_urls(const char *output_path)
 {
     if (!resolve_nt()) return -1;
 
@@ -598,11 +598,11 @@ int dorm_enum_typed_urls(const char *output_path)
    COMBINED REPORT
    ============================================================ */
 
-BOOL dorm_reg_report(const char *output_path)
+BOOL JOCKY_reg_report(const char *output_path)
 {
-    int p = dorm_enum_persistence("persistence.json");
-    int s = dorm_enum_services_reg("services.json");
-    int u = dorm_enum_typed_urls("typed_urls.json");
+    int p = JOCKY_enum_persistence("persistence.json");
+    int s = JOCKY_enum_services_reg("services.json");
+    int u = JOCKY_enum_typed_urls("typed_urls.json");
 
     FILE *fp = open_output(output_path, "w");
     if (!fp) return FALSE;

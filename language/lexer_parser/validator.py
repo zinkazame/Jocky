@@ -1,11 +1,11 @@
-"""
-DORM Forensic Language — Validator  (Phase 3)
+﻿"""
+JOCKY Forensic Language — Validator  (Phase 3)
 ===============================================
 Single responsibility: enforce the three post-parse constraints from
 validation_rules.md against a parse tree returned by Phase 2.
 
 Accepts: lark.Tree from parser.parse()
-Returns: None on success, raises DormValidationError on violation.
+Returns: None on success, raises JOCKYValidationError on violation.
 
 Nothing else. No execution. No output writing.
 """
@@ -19,9 +19,9 @@ from lark import Tree
 
 # ─── Exception ───────────────────────────────────────────────────────────────
 
-class DormValidationError(Exception):
+class JOCKYValidationError(Exception):
     """
-    Raised when a syntactically valid .drm tree violates a semantic constraint.
+    Raised when a syntactically valid .jky tree violates a semantic constraint.
     Always contains a human-readable message identifying which constraint
     failed and exactly where.
     """
@@ -48,7 +48,7 @@ _COMPAT: dict[str, set[str]] = {
 
 def validate(tree: Tree) -> None:
     """
-    Run all three validation constraints against a DORM parse tree.
+    Run all three validation constraints against a JOCKY parse tree.
 
     Constraints are run in this order:
       1. Section order      (memory → network → system → disk)
@@ -62,7 +62,7 @@ def validate(tree: Tree) -> None:
 
     Raises
     ------
-    DormValidationError
+    JOCKYValidationError
         On the first constraint violation found.
     """
     section_names = _extract_section_names(tree)
@@ -105,7 +105,7 @@ def _validate_section_order(section_names: list[str]) -> None:
     positions = [_SECTION_ORDER.index(name) for name in section_names]
     for i in range(1, len(positions)):
         if positions[i] < positions[i - 1]:
-            raise DormValidationError(
+            raise JOCKYValidationError(
                 f"Constraint 1 — Section order violation: "
                 f"'{section_names[i]}' appears after '{section_names[i - 1]}' "
                 f"but must precede it in volatility order.\n"
@@ -120,7 +120,7 @@ def _validate_no_duplicates(section_names: list[str]) -> None:
     seen: set[str] = set()
     for name in section_names:
         if name in seen:
-            raise DormValidationError(
+            raise JOCKYValidationError(
                 f"Constraint 2 — Duplicate section: "
                 f"'{name}' is declared more than once."
             )
@@ -146,7 +146,7 @@ def _validate_command_primitive(tree: Tree) -> None:
         allowed = _COMPAT.get(command_str, set())
         if primitive_str not in allowed:
             line = getattr(operation.meta, "line", "?")
-            raise DormValidationError(
+            raise JOCKYValidationError(
                 f"Constraint 3 — Command-primitive mismatch at line {line}: "
                 f"'{command_str}' cannot be used with '{primitive_str}'.\n"
                 f"  Valid primitives for '{command_str}': "
@@ -174,7 +174,7 @@ def _first_tree_child(node: Tree, rule_name: str) -> Tree:
 
 def _main() -> None:
     """
-    Usage: python validator.py <script.drm>
+    Usage: python validator.py <script.jky>
 
     Runs parse then validate.
     Exit 0 — both passed.
@@ -185,10 +185,10 @@ def _main() -> None:
     if str(_pkg) not in sys.path:
         sys.path.insert(0, str(_pkg))
 
-    from parser import DormParseError, parse_file  # language/lexer_parser/parser.py
+    from parser import JOCKYParseError, parse_file  # language/lexer_parser/parser.py
 
     if len(sys.argv) != 2:
-        print("Usage: python validator.py <script.drm>", file=sys.stderr)
+        print("Usage: python validator.py <script.jky>", file=sys.stderr)
         sys.exit(1)
 
     script_path = Path(sys.argv[1])
@@ -199,7 +199,7 @@ def _main() -> None:
     # Step 1 — parse
     try:
         tree = parse_file(script_path)
-    except DormParseError as exc:
+    except JOCKYParseError as exc:
         print(f"Parse error:\n  {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"Parse successful — {script_path.name}")
@@ -207,7 +207,7 @@ def _main() -> None:
     # Step 2 — validate
     try:
         validate(tree)
-    except DormValidationError as exc:
+    except JOCKYValidationError as exc:
         print(f"Validation error:\n  {exc}", file=sys.stderr)
         sys.exit(1)
     print("Validation passed.")

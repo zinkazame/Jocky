@@ -1,8 +1,8 @@
-#pragma once
+﻿#pragma once
 #include <windows.h>
 
 /*
- * dorm_unhook_ntdll
+ * JOCKY_unhook_ntdll
  * ==================
  * Restores the clean .text section of the in-process NTDLL from the
  * on-disk copy at C:\Windows\System32\ntdll.dll.
@@ -20,4 +20,4 @@
  * Call once at agent startup, before any forensic primitives run.
  * Not re-entrant — do not call from multiple threads simultaneously.
  */
-BOOL dorm_unhook_ntdll(void);
+BOOL JOCKY_unhook_ntdll(void);

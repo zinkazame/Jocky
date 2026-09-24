@@ -1,4 +1,4 @@
-/*
+﻿/*
  * ntdll_unhook.h — NTDLL .text Section Restoration (Enhancement 4)
  * execution_engine/ntdll_unhook/ntdll_unhook.h
  *
@@ -13,7 +13,7 @@
  * Call order in test_phase12.c:
  *   unhook_ntdll()   ← wipe hooks
  *   sgx_init()       ← now sees clean stubs, extracts real SSNs
- *   dorm_hijack_*   ← thread ops through restored ntdll
+ *   JOCKY_hijack_*   ← thread ops through restored ntdll
  */
 #pragma once
 #include <windows.h>

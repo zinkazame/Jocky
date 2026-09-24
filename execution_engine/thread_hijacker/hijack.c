@@ -1,4 +1,4 @@
-/*
+﻿/*
  * hijack.c — Thread Context Hijack Engine
  * execution_engine/thread_hijacker/hijack.c
  *
@@ -401,7 +401,7 @@ done:
    PUBLIC API
    ============================================================ */
 
-BOOL dorm_hijack_thread(DWORD  target_pid,
+BOOL JOCKY_hijack_thread(DWORD  target_pid,
                          LPBYTE payload_bytes,
                          DWORD  payload_size)
 {
@@ -438,7 +438,7 @@ cleanup:
 }
 
 
-BOOL dorm_hijack_thread_by_tid(DWORD  target_pid,
+BOOL JOCKY_hijack_thread_by_tid(DWORD  target_pid,
                                 DWORD  target_tid,
                                 LPBYTE payload_bytes,
                                 DWORD  payload_size)

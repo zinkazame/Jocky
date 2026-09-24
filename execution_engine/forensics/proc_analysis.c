@@ -1,5 +1,5 @@
-/*
- * proc_analysis.c — DORM Phase 13.1: Process Analysis Collector
+﻿/*
+ * proc_analysis.c — JOCKY Phase 13.1: Process Analysis Collector
  * execution_engine/forensics/proc_analysis.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -19,7 +19,7 @@
  * JSON output: hand-written fprintf, no external serialiser.
  */
 
-#include "forensics.h"     /* pulls proc_analysis.h + DORM_FORENSICS_VERSION */
+#include "forensics.h"     /* pulls proc_analysis.h + JOCKY_FORENSICS_VERSION */
 #include <psapi.h>         /* K32GetMappedFileNameW                           */
 #include <stdio.h>
 #include <string.h>
@@ -154,7 +154,7 @@ static FILE *open_output(const char *path)
    HOLLOW DETECTION
    ============================================================ */
 
-BOOL dorm_detect_hollow(DWORD pid, BOOL *is_hollow)
+BOOL JOCKY_detect_hollow(DWORD pid, BOOL *is_hollow)
 {
     /* *the .text section: where every injected lie hides between the real instructions* */
     *is_hollow = FALSE;
@@ -287,7 +287,7 @@ cleanup:
    MODULE ENUMERATION
    ============================================================ */
 
-int dorm_enum_modules(DWORD pid, const char *output_path)
+int JOCKY_enum_modules(DWORD pid, const char *output_path)
 {
     HANDLE hProc = OpenProcess(
         PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, pid);
@@ -377,7 +377,7 @@ int dorm_enum_modules(DWORD pid, const char *output_path)
    PROCESS ENUMERATION — MAIN COLLECTOR
    ============================================================ */
 
-int dorm_enum_processes(const char *output_path)
+int JOCKY_enum_processes(const char *output_path)
 {
     /* *the process list: every secret the machine keeps, enumerated and judged* */
 
@@ -418,12 +418,12 @@ int dorm_enum_processes(const char *output_path)
 
     fprintf(fp,
         "{\n"
-        "  \"dorm_version\": \"%s\",\n"
+        "  \"JOCKY_version\": \"%s\",\n"
         "  \"collector\": \"proc_analysis\",\n"
         "  \"timestamp_utc\": \"%s\",\n"
         "  \"hostname\": \"%s\",\n"
         "  \"processes\": [\n",
-        DORM_FORENSICS_VERSION, ts, hostname);
+        JOCKY_FORENSICS_VERSION, ts, hostname);
 
     int   proc_count = 0;
     BYTE *entry      = buf;
@@ -450,7 +450,7 @@ int dorm_enum_processes(const char *output_path)
 
         /* ── hollow detection ── */
         BOOL is_hollow = FALSE;
-        if (pid > 4) dorm_detect_hollow(pid, &is_hollow);
+        if (pid > 4) JOCKY_detect_hollow(pid, &is_hollow);
 
         /* ── emit process object ── */
         if (!first_proc) fputs(",\n", fp);
@@ -522,7 +522,7 @@ int dorm_enum_processes(const char *output_path)
    FULL REPORT — CONVENIENCE WRAPPER
    ============================================================ */
 
-BOOL dorm_full_process_report(const char *output_path)
+BOOL JOCKY_full_process_report(const char *output_path)
 {
-    return dorm_enum_processes(output_path) >= 0;
+    return JOCKY_enum_processes(output_path) >= 0;
 }

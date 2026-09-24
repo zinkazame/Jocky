@@ -1,4 +1,4 @@
-# DORM Forensic Script — Suspect File Analysis
+﻿# JOCKY Forensic Script — Suspect File Analysis
 # Investigator: A.Verma | Case: CASE-2026-0512
 # Tests: only two sections present (system, disk) — memory and network omitted.
 #        Validates that Constraint 1 allows gaps in the order, not just scrambles.

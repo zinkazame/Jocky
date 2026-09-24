@@ -1,4 +1,4 @@
-"""
+﻿"""
 JOCKY Variable Renamer — Phase 6 Obfuscator
 =============================================
 Renames LLVM IR global variables, local values, and basic block labels
@@ -56,7 +56,7 @@ class VariableRenamer:
         "llvm.memset.p0i8.i64",
         "llvm.lifetime.start.p0",
         "llvm.lifetime.end.p0",
-        "dorm_main",   # entry point — must keep
+        "JOCKY_main",   # entry point — must keep
     }
     _PRESERVE_LOCALS = {
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
@@ -118,8 +118,8 @@ class VariableRenamer:
         for match in self._GLOBAL_RE.finditer(ir_text):
             name = match.group(1)
             if name not in self._PRESERVE_GLOBALS and name not in self._global_map:
-                # Preserve dorm_ prefixed functions (external C primitives)
-                if name.startswith("dorm_"):
+                # Preserve JOCKY_ prefixed functions (external C primitives)
+                if name.startswith("JOCKY_"):
                     self._global_map[name] = name   # identity mapping
                 else:
                     self._global_map[name] = self._random_name("g")

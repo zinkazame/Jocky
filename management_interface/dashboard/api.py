@@ -1,301 +1,449 @@
-"""
-JOCKY Management Dashboard — FastAPI Backend  (Phase 17)
-=========================================================
-Real-time multi-agent coordination API.
-
-Endpoints:
-  GET  /                    — Health check
-  GET  /agents              — List all connected agents
-  POST /agents/connect      — Connect to a new agent
-  DELETE /agents/{id}       — Disconnect an agent
-  POST /agents/{id}/command — Send a forensic command to an agent
-  POST /agents/broadcast    — Broadcast command to all agents
-  GET  /agents/{id}/results — Get all results from an agent
-  GET  /chain/{path}        — Verify a hash-chain log
-  POST /compile             — Compile a JOCKY script
-  GET  /ws                  — WebSocket for real-time agent events
-
-Run:
-    pip install fastapi uvicorn websockets
-    python management_interface/dashboard/api.py
-"""
+# management_interface/dashboard/api.py
+# [JOCKY phase 17 -- management dashboard API + integrity integration]
+#
+# PURPOSE
+# -------
+# FastAPI backend serving the investigator dashboard.
+# Exposes REST endpoints for:
+#   - Agent status and health monitoring
+#   - Task dispatch to deployed agents
+#   - Evidence retrieval with integrity verification
+#   - Hash-chain log access and signing
+#   - Real-time SSE (Server-Sent Events) for live agent updates
+#
+# INTEGRITY INTEGRATION
+# ----------------------
+# Every result collected from an agent is immediately appended to that
+# agent's hash-chain log (Phase 17 integrity engine). The chain is
+# Ed25519-signed so evidence is court-admissible from the moment
+# it lands in the dashboard.
+#
+# RUN
+# ---
+#   python management_interface/dashboard/api.py
+#   # opens at http://127.0.0.1:8000
+#   # docs at  http://127.0.0.1:8000/docs
+#
+# *the investigator opens a browser. every agent is visible.
+#  every byte of evidence is signed before the screen finishes loading.*
 
 from __future__ import annotations
-
-import asyncio
-import json
-import os
-import sys
-from pathlib import Path
-from typing import Any
-
-# ─── Path bootstrap ───────────────────────────────────────────────────────────
-_ROOT = Path(__file__).resolve().parent.parent.parent
-for _p in [
-    str(_ROOT),
-    str(_ROOT / "management_interface"),
-    str(_ROOT / "integrity"),
-    str(_ROOT / "language" / "lexer_parser"),
-    str(_ROOT / "language" / "llvm_frontend"),
-    str(_ROOT / "build_pipeline" / "polymorphic_engine"),
-]:
+import sys, pathlib
+_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+for _p in [str(_ROOT),
+           str(_ROOT / 'integrity'),
+           str(_ROOT / 'language' / 'lexer_parser'),
+           str(_ROOT / 'build_pipeline' / 'obfuscator')]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-try:
-    from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
-    import uvicorn
-    _FASTAPI_OK = True
-except ImportError:
-    _FASTAPI_OK = False
-    print("FastAPI not installed. Run: pip install fastapi uvicorn")
-    sys.exit(1)
+import asyncio
+import json
+import logging
+import time
+from pathlib import Path
+from typing  import Any, AsyncIterator, Dict, List, Optional
 
-from pydantic import BaseModel
-from agent_controller import AgentController
+import uvicorn
+from fastapi              import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses    import StreamingResponse, JSONResponse
+from pydantic             import BaseModel
+
+# ── JOCKY internal imports ────────────────────────────────────────────────────
+from management_interface.agent_controller import AgentController, AgentState
 from hash_chain import HashChain
-from verifier import verify_chain
+from signing    import ChainSigner
+from verifier   import verify_chain
 
-# ─── App setup ────────────────────────────────────────────────────────────────
+log = logging.getLogger("jocky.dashboard")
 
+# ── FastAPI app ───────────────────────────────────────────────────────────────
 app = FastAPI(
-    title       = "JOCKY Management Dashboard",
-    description = "Real-time multi-agent forensic coordination API",
+    title       = "JOCKY Forensic Dashboard",
+    description = "Multi-agent forensic intelligence framework — SIH 2025",
     version     = "1.0.0",
+    docs_url    = "/docs",
+    redoc_url   = "/redoc",
 )
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],   # Restrict in production
-    allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_origins  = ["*"],
+    allow_methods  = ["*"],
+    allow_headers  = ["*"],
 )
 
-# Global controller instance
-_controller = AgentController()
+# ── Global controller + integrity state ──────────────────────────────────────
+controller    = AgentController()
+_chains:      Dict[str, HashChain]   = {}   # agent_id -> HashChain
+_signers:     Dict[str, ChainSigner] = {}   # agent_id -> ChainSigner
+_evidence_dir = _ROOT / "evidence"
+_evidence_dir.mkdir(exist_ok=True)
 
-# WebSocket broadcast set
-_ws_clients: set[WebSocket] = set()
-
-
-# ─── Request/Response models ──────────────────────────────────────────────────
-
-class ConnectRequest(BaseModel):
-    host:     str
-    port:     int   = 4444
-    agent_id: str
-
-class CommandRequest(BaseModel):
-    command:   str
-    primitive: str
-    args:      dict[str, Any] = {}
-    timeout:   float = 60.0
-
-class CompileRequest(BaseModel):
-    script_path: str
-    obfuscate:   bool = False
-    output_dir:  str  = ""
+# SSE broadcast queue — all connected dashboard clients receive live updates
+_sse_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
 
 
-# ─── Health ───────────────────────────────────────────────────────────────────
+# ── Startup / shutdown ────────────────────────────────────────────────────────
 
-@app.get("/")
-async def health():
-    return {
-        "status":  "ok",
-        "service": "JOCKY Management Dashboard",
-        "version": "1.0.0",
-        "agents":  len(_controller.list_agents()),
-    }
+@app.on_event("startup")
+async def on_startup() -> None:
+    # wire the controller's result callback -> integrity chain + SSE push
+    controller.set_result_callback(_on_agent_result)
+    controller.start()
+    log.info("[dashboard] started -- controller running")
 
-
-# ─── Agent management ─────────────────────────────────────────────────────────
-
-@app.get("/agents")
-async def list_agents():
-    """List all connected agents with their status."""
-    return {"agents": _controller.list_agents()}
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    controller.stop()
+    log.info("[dashboard] stopped")
 
 
-@app.post("/agents/connect")
-async def connect_agent(req: ConnectRequest):
-    """Connect to a JOCKY agent on a target machine."""
+# ── Integrity helpers ─────────────────────────────────────────────────────────
+
+def _get_chain(agent_id: str) -> HashChain:
+    """Get or create the hash-chain for an agent."""
+    if agent_id not in _chains:
+        chain_path = _evidence_dir / f"chain_{agent_id}.json"
+        _chains[agent_id] = HashChain(str(chain_path))
+    return _chains[agent_id]
+
+def _get_signer(agent_id: str) -> ChainSigner:
+    """Get or create the Ed25519 signer for an agent."""
+    if agent_id not in _signers:
+        key_path = _evidence_dir / f"key_{agent_id}.pem"
+        _signers[agent_id] = ChainSigner(str(key_path))
+    return _signers[agent_id]
+
+def _on_agent_result(agent_id: str, result: dict) -> None:
+    """
+    Callback fired by AgentController whenever a result arrives.
+    1. Append to agent's hash-chain (integrity)
+    2. Sign the entry (court-admissible)
+    3. Push to SSE queue (live dashboard update)
+
+    *evidence lands, is hashed, is signed, in the same heartbeat.*
+    """
     try:
-        session = await _controller.connect(req.host, req.port, req.agent_id)
-        await _broadcast_event("agent_connected", {
-            "agent_id": req.agent_id,
-            "host":     req.host,
-            "port":     req.port,
-        })
-        return {
-            "status":    "connected",
-            "agent_id":  session.agent_id,
-            "connected_at": session.connected_at,
-        }
-    except (ConnectionError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@app.delete("/agents/{agent_id}")
-async def disconnect_agent(agent_id: str):
-    """Disconnect an agent."""
-    await _controller.disconnect(agent_id)
-    await _broadcast_event("agent_disconnected", {"agent_id": agent_id})
-    return {"status": "disconnected", "agent_id": agent_id}
-
-
-# ─── Command dispatch ─────────────────────────────────────────────────────────
-
-@app.post("/agents/{agent_id}/command")
-async def send_command(agent_id: str, req: CommandRequest):
-    """Send a forensic command to a specific agent."""
-    try:
-        result = await _controller.send_command(
-            agent_id  = agent_id,
-            command   = req.command,
-            primitive = req.primitive,
-            args      = req.args,
-            timeout   = req.timeout,
+        chain   = _get_chain(agent_id)
+        signer  = _get_signer(agent_id)
+        entry_id = chain.append(
+            event = "evidence",
+            data  = result,
         )
-        await _broadcast_event("command_result", {
-            "agent_id":  agent_id,
-            "command":   req.command,
-            "primitive": req.primitive,
-            "status":    result.get("status"),
-        })
-        return result
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except TimeoutError as exc:
-        raise HTTPException(status_code=408, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        signer.sign_entry(chain, entry_id)
+        log.info(f"[dashboard] chain entry #{entry_id} signed: {agent_id}")
+    except Exception as e:
+        log.warning(f"[dashboard] integrity chain error for {agent_id}: {e}")
 
-
-@app.post("/agents/broadcast")
-async def broadcast_command(req: CommandRequest):
-    """Send the same command to all connected agents simultaneously."""
-    results = await _controller.broadcast_command(
-        command   = req.command,
-        primitive = req.primitive,
-        args      = req.args,
-        timeout   = req.timeout,
-    )
-    await _broadcast_event("broadcast_complete", {
-        "command":   req.command,
-        "primitive": req.primitive,
-        "agents":    list(results.keys()),
-    })
-    return {"results": results}
-
-
-@app.get("/agents/{agent_id}/results")
-async def get_results(agent_id: str):
-    """Get all accumulated forensic results from an agent."""
+    # push live update to SSE clients (non-blocking)
+    event = {
+        "type":     "result",
+        "agent_id": agent_id,
+        "data":     result,
+        "ts":       time.time(),
+    }
     try:
-        results = _controller.get_results(agent_id)
-        return {"agent_id": agent_id, "count": len(results), "results": results}
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        _sse_queue.put_nowait(event)
+    except asyncio.QueueFull:
+        pass   # drop if no clients are listening
 
 
-# ─── Integrity chain ──────────────────────────────────────────────────────────
+# ── Pydantic request models ───────────────────────────────────────────────────
 
-@app.get("/chain/verify")
-async def verify_chain_endpoint(path: str, pubkey: str = ""):
-    """Verify a JOCKY hash-chain integrity log."""
-    if not Path(path).exists():
-        raise HTTPException(status_code=404, detail=f"Chain file not found: {path}")
-    ok, report = verify_chain(path, pubkey or None)
-    return {"intact": ok, "report": report}
+class RegisterAgentRequest(BaseModel):
+    agent_id:   str
+    psk_hex:    str          # 32-byte PSK as hex string (64 chars)
+    c2_backend: str
+    cdn_fronts: Optional[List[str]] = None
+    label:      Optional[str]       = None
+
+class TaskRequest(BaseModel):
+    cmd_type: str
+    args:     Dict[str, Any] = {}
+
+class BroadcastRequest(BaseModel):
+    cmd_type: str
+    args:     Dict[str, Any] = {}
 
 
-# ─── Compiler ─────────────────────────────────────────────────────────────────
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@app.post("/compile")
-async def compile_script(req: CompileRequest):
-    """Compile a JOCKY script to a native binary."""
-    script = Path(req.script_path)
-    if not script.exists():
-        raise HTTPException(status_code=404, detail=f"Script not found: {req.script_path}")
-
-    # Run compilation in a subprocess to avoid blocking the event loop
-    cmd = [sys.executable, str(_ROOT / "main.py"), "compile", str(script)]
-    if req.obfuscate:
-        cmd.append("--obfuscate")
-    if req.output_dir:
-        cmd.extend(["--output", req.output_dir])
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-
-    success = proc.returncode == 0
-    await _broadcast_event("compile_complete", {
-        "script":  req.script_path,
-        "success": success,
-    })
-
+# ── / health ──────────────────────────────────────────────────────────────────
+@app.get("/", tags=["meta"])
+def root() -> dict:
     return {
-        "success":   success,
-        "stdout":    stdout.decode("utf-8", errors="replace"),
-        "stderr":    stderr.decode("utf-8", errors="replace"),
-        "exit_code": proc.returncode,
+        "framework": "JOCKY",
+        "version":   "1.0.0",
+        "phase":     "17 -- dashboard operational",
+        "status":    "online",
+        "timestamp": time.time(),
+    }
+
+@app.get("/health", tags=["meta"])
+def health() -> dict:
+    snap = controller.status()
+    return {
+        "ok":          True,
+        "agents":      snap["agent_count"],
+        "pending":     snap["pending_tasks"],
+        "total_tasks": snap["total_tasks"],
+        "timestamp":   snap["timestamp"],
     }
 
 
-# ─── WebSocket real-time events ───────────────────────────────────────────────
+# ── /agents ────────────────────────────────────────────────────────────────────
+@app.get("/agents", tags=["agents"])
+def list_agents() -> dict:
+    """Return status of all registered agents."""
+    snap = controller.status()
+    return snap
 
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    """
-    WebSocket endpoint for real-time agent event streaming.
-    The React dashboard connects here to receive live updates.
-    """
-    await ws.accept()
-    _ws_clients.add(ws)
+@app.post("/agents", tags=["agents"])
+def register_agent(req: RegisterAgentRequest) -> dict:
+    """Register a new target agent."""
     try:
-        # Send current agent list on connect
-        await ws.send_json({
-            "event": "connected",
-            "data":  {"agents": _controller.list_agents()},
-        })
-        # Keep connection alive
-        while True:
-            await ws.receive_text()   # ping/pong
-    except WebSocketDisconnect:
-        pass
-    finally:
-        _ws_clients.discard(ws)
+        psk = bytes.fromhex(req.psk_hex)
+        if len(psk) != 32:
+            raise ValueError("PSK must be exactly 32 bytes (64 hex chars)")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-
-async def _broadcast_event(event: str, data: dict) -> None:
-    """Broadcast an event to all connected WebSocket clients."""
-    if not _ws_clients:
-        return
-    msg = json.dumps({"event": event, "data": data})
-    dead = set()
-    for ws in _ws_clients:
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            dead.add(ws)
-    _ws_clients -= dead
-
-
-# ─── Entry point ──────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "api:app",
-        host    = "127.0.0.1",
-        port    = 8000,
-        reload  = False,
-        log_level = "info",
+    controller.register_agent(
+        agent_id   = req.agent_id,
+        psk        = psk,
+        c2_backend = req.c2_backend,
+        cdn_fronts = req.cdn_fronts,
+        label      = req.label,
+        chain_path = str(_evidence_dir / f"chain_{req.agent_id}.json"),
     )
+    return {"ok": True, "agent_id": req.agent_id, "label": req.label}
+
+@app.get("/agents/{agent_id}", tags=["agents"])
+def agent_detail(agent_id: str) -> dict:
+    """Get detailed status for one agent."""
+    status = controller.agent_status(agent_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"agent not found: {agent_id}")
+    return status
+
+@app.delete("/agents/{agent_id}", tags=["agents"])
+def deregister_agent(agent_id: str) -> dict:
+    """Remove an agent from the controller."""
+    controller.deregister_agent(agent_id)
+    return {"ok": True, "agent_id": agent_id}
+
+
+# ── /agents/{id}/tasks ────────────────────────────────────────────────────────
+@app.post("/agents/{agent_id}/tasks", tags=["tasks"])
+def dispatch_task(agent_id: str, req: TaskRequest) -> dict:
+    """
+    Dispatch a forensic task to a specific agent.
+
+    cmd_type examples:
+        proc_list    -- running process enumeration
+        mem_acquire  -- process memory dump
+        reg_walk     -- registry hive walk
+        net_state    -- active network connections
+        fs_analysis  -- filesystem artifact collection
+    """
+    try:
+        task_id = controller.task(agent_id, req.cmd_type, req.args)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "task_id": task_id,
+            "agent_id": agent_id, "cmd_type": req.cmd_type}
+
+@app.get("/agents/{agent_id}/tasks/{task_id}", tags=["tasks"])
+def get_task_status(agent_id: str, task_id: str) -> dict:
+    """Check status of a dispatched task."""
+    task = controller.get_task(task_id)
+    if not task or task.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="task not found")
+    return {
+        "task_id":     task.task_id,
+        "agent_id":    task.agent_id,
+        "cmd_type":    task.cmd_type,
+        "args":        task.args,
+        "status":      task.status.name,
+        "created_at":  task.created_at,
+        "sent_at":     task.sent_at,
+        "completed_at":task.completed_at,
+        "elapsed_sec": task.elapsed,
+        "result":      task.result,
+        "error":       task.error,
+    }
+
+
+# ── /broadcast ────────────────────────────────────────────────────────────────
+@app.post("/broadcast", tags=["tasks"])
+def broadcast(req: BroadcastRequest) -> dict:
+    """Dispatch a task to ALL registered agents simultaneously."""
+    task_ids = controller.broadcast(req.cmd_type, req.args)
+    return {"ok": True, "cmd_type": req.cmd_type,
+            "dispatched_to": len(task_ids), "task_ids": task_ids}
+
+
+# ── /agents/{id}/results ──────────────────────────────────────────────────────
+@app.get("/agents/{agent_id}/results", tags=["evidence"])
+def get_results(agent_id:   str,
+                since:      float = 0.0,
+                cmd_filter: Optional[str] = None) -> dict:
+    """Retrieve collected evidence from an agent."""
+    results = controller.results(agent_id,
+                                  since=since,
+                                  cmd_filter=cmd_filter)
+    return {
+        "agent_id": agent_id,
+        "count":    len(results),
+        "results":  results,
+    }
+
+@app.get("/results", tags=["evidence"])
+def all_results() -> dict:
+    """Retrieve all evidence from all agents."""
+    data = controller.all_results()
+    total = sum(len(v) for v in data.values())
+    return {"total": total, "by_agent": data}
+
+
+# ── /integrity ────────────────────────────────────────────────────────────────
+@app.get("/integrity/{agent_id}", tags=["integrity"])
+def get_chain(agent_id: str) -> dict:
+    """
+    Return the full hash-chain for an agent's evidence log.
+    Each entry is SHA-256 chained and Ed25519-signed.
+    """
+    chain_path = _evidence_dir / f"chain_{agent_id}.json"
+    if not chain_path.exists():
+        raise HTTPException(status_code=404,
+                            detail=f"no chain for agent: {agent_id}")
+    try:
+        with open(chain_path, encoding="utf-8") as f:
+            chain_data = json.load(f)
+        return {"agent_id": agent_id, "chain": chain_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/integrity/{agent_id}/verify", tags=["integrity"])
+def verify_agent_chain(agent_id: str) -> dict:
+    """
+    Verify the integrity of an agent's evidence chain.
+    Returns verification status and a human-readable report.
+    *the chain either holds or it doesn't. there is no almost.*
+    """
+    chain_path = _evidence_dir / f"chain_{agent_id}.json"
+    key_path   = _evidence_dir / f"key_{agent_id}.pem"
+
+    if not chain_path.exists():
+        raise HTTPException(status_code=404,
+                            detail=f"no chain for agent: {agent_id}")
+
+    key_hex = None
+    if key_path.exists():
+        try:
+            signer  = ChainSigner(str(key_path))
+            key_hex = getattr(signer, "_public_key_hex", None)
+        except Exception:
+            pass
+
+    ok, report = verify_chain(str(chain_path), public_key_hex=key_hex)
+    return {
+        "agent_id": agent_id,
+        "verified": ok,
+        "report":   report,
+    }
+
+
+# ── /stream (SSE live feed) ───────────────────────────────────────────────────
+@app.get("/stream", tags=["live"])
+async def event_stream() -> StreamingResponse:
+    """
+    Server-Sent Events endpoint for live dashboard updates.
+    Connect with EventSource('/stream') in the React dashboard.
+    Each event carries: agent_id, result data, timestamp.
+
+    *the dashboard listens. agents speak. the stream never closes.*
+    """
+    async def generate() -> AsyncIterator[str]:
+        yield "data: {\"type\": \"connected\"}\n\n"
+        while True:
+            try:
+                event = await asyncio.wait_for(_sse_queue.get(), timeout=30)
+                yield f"data: {json.dumps(event)}\n\n"
+            except asyncio.TimeoutError:
+                # keepalive ping every 30s
+                yield "data: {\"type\": \"ping\"}\n\n"
+            except Exception:
+                break
+
+    return StreamingResponse(
+        generate(),
+        media_type = "text/event-stream",
+        headers    = {
+            "Cache-Control":   "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── demo endpoint (SIH demo mode) ────────────────────────────────────────────
+@app.post("/demo/seed", tags=["demo"])
+def seed_demo_data() -> dict:
+    """
+    Seed the dashboard with demo agents and synthetic evidence.
+    Called during SIH presentation to populate the UI instantly.
+    """
+    import secrets, hashlib
+
+    demo_agents = [
+        {"id": "agent-dc01",  "label": "TARGET-DC01 (Domain Controller)"},
+        {"id": "agent-ws01",  "label": "TARGET-WORKSTATION-FINANCE"},
+        {"id": "agent-srv02", "label": "TARGET-SERVER-02 (File Server)"},
+    ]
+    psk = b"JOCKY_DEMO_PSK_32_BYTES_12345678"
+
+    for a in demo_agents:
+        try:
+            controller.register_agent(
+                agent_id   = a["id"],
+                psk        = psk,
+                c2_backend = "demo.c2.example.com",
+                label      = a["label"],
+            )
+        except Exception:
+            pass  # already registered
+
+        # inject synthetic evidence directly into chain
+        chain  = _get_chain(a["id"])
+        signer = _get_signer(a["id"])
+        demo_results = [
+            {"cmd": "proc_list",   "data": {"count": 87, "suspicious": ["mimikatz.exe"]}},
+            {"cmd": "net_state",   "data": {"connections": 12, "external_ips": ["185.220.101.0"]}},
+            {"cmd": "mem_acquire", "data": {"pid": 1234, "bytes_captured": 65536}},
+        ]
+        for r in demo_results:
+            eid = chain.append(event="evidence", data=r)
+            signer.sign_entry(chain, eid)
+
+    return {
+        "ok":     True,
+        "seeded": [a["id"] for a in demo_agents],
+        "msg":    "Demo data seeded -- open /docs to explore",
+    }
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    logging.basicConfig(
+        level  = logging.INFO,
+        format = "[%(asctime)s] %(name)s %(levelname)s: %(message)s",
+    )
+    print("\n  JOCKY Forensic Dashboard -- Phase 17")
+    print("  ======================================")
+    print("  API docs:  http://127.0.0.1:8000/docs")
+    print("  Health:    http://127.0.0.1:8000/health")
+    print("  Live feed: http://127.0.0.1:8000/stream")
+    print("  Demo seed: POST http://127.0.0.1:8000/demo/seed\n")
+
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)

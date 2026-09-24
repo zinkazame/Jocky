@@ -1,9 +1,9 @@
-# DORM Test Script — SHOULD BE REJECTED BY VALIDATOR
+﻿# JOCKY Test Script — SHOULD BE REJECTED BY VALIDATOR
 # Case: Constraint 1 violation — disk appears before memory
 #
 # The grammar accepts this script (it is syntactically valid).
 # The Phase 3 validator must reject it with:
-#   DormValidationError: Sections are out of volatility order.
+#   JOCKYValidationError: Sections are out of volatility order.
 #
 # Expected: parser.parse() succeeds, validate(tree) raises.
 

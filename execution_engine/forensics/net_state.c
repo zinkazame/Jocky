@@ -1,5 +1,5 @@
-/*
- * net_state.c — DORM Phase 13.3: Network State Collector
+﻿/*
+ * net_state.c — JOCKY Phase 13.3: Network State Collector
  * execution_engine/forensics/net_state.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -202,7 +202,7 @@ static void pid_to_name(DWORD pid, char *out, int len)
    CONNECTION ENUMERATION
    ============================================================ */
 
-int dorm_enum_connections(const char *output_path)
+int JOCKY_enum_connections(const char *output_path)
 {
     /* *every socket: a promise made to the network, laid out for inspection* */
 
@@ -422,21 +422,21 @@ int dorm_enum_connections(const char *output_path)
    ============================================================ */
 
 /*
- * DORM_DNS_CACHE_ENTRY — mirrors the undocumented DNS_CACHE_ENTRY
+ * JOCKY_DNS_CACHE_ENTRY — mirrors the undocumented DNS_CACHE_ENTRY
  * structure from dnsapi.dll.  Stable since Windows XP; present on
  * Windows 10 / 11.  Layout verified against public reverse-engineering.
  */
-typedef struct _DORM_DNS_CACHE_ENTRY {
-    struct _DORM_DNS_CACHE_ENTRY *pNext;
+typedef struct _JOCKY_DNS_CACHE_ENTRY {
+    struct _JOCKY_DNS_CACHE_ENTRY *pNext;
     PWSTR  pszName;
     WORD   wType;
     WORD   wDataLength;
     DWORD  dwFlags;
-} DORM_DNS_CACHE_ENTRY;
+} JOCKY_DNS_CACHE_ENTRY;
 
-typedef BOOL (WINAPI *DnsGetCacheDataTable_t)(DORM_DNS_CACHE_ENTRY **);
+typedef BOOL (WINAPI *DnsGetCacheDataTable_t)(JOCKY_DNS_CACHE_ENTRY **);
 
-int dorm_dns_cache(const char *output_path)
+int JOCKY_dns_cache(const char *output_path)
 {
     FILE *fp = open_output(output_path, "w");
     if (!fp) return -1;
@@ -475,11 +475,11 @@ int dorm_dns_cache(const char *output_path)
         return 0;
     }
 
-    DORM_DNS_CACHE_ENTRY *head = NULL;
+    JOCKY_DNS_CACHE_ENTRY *head = NULL;
     BOOL first = TRUE;
 
     if (pfn(&head) && head) {
-        for (DORM_DNS_CACHE_ENTRY *e = head; e; e = e->pNext) {
+        for (JOCKY_DNS_CACHE_ENTRY *e = head; e; e = e->pNext) {
             char name_utf8[512] = {0};
             if (e->pszName)
                 WideCharToMultiByte(CP_UTF8, 0, e->pszName, -1,
@@ -515,7 +515,7 @@ int dorm_dns_cache(const char *output_path)
    COMBINED REPORT
    ============================================================ */
 
-BOOL dorm_net_report(const char *output_path)
+BOOL JOCKY_net_report(const char *output_path)
 {
     FILE *fp = open_output(output_path, "w");
     if (!fp) return FALSE;
@@ -541,8 +541,8 @@ BOOL dorm_net_report(const char *output_path)
 
     if (fp != stdout) fclose(fp);
 
-    int conn = dorm_enum_connections("connections.json");
-    int dns  = dorm_dns_cache("dns_cache.json");
+    int conn = JOCKY_enum_connections("connections.json");
+    int dns  = JOCKY_dns_cache("dns_cache.json");
 
     printf("[net] connections: %d  dns_entries: %d\n", conn, dns);
     return (conn >= 0 && dns >= 0);

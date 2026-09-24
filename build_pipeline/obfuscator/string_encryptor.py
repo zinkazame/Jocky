@@ -1,9 +1,9 @@
-"""
+﻿"""
 JOCKY String Encryptor — Phase 6 Obfuscator
 =============================================
 Encrypts string constants in LLVM IR (.ll files) at compile time.
 Strings are replaced with AES-256-CTR encrypted byte arrays that are
-decrypted at runtime via an injected dorm_decrypt_str() helper.
+decrypted at runtime via an injected JOCKY_decrypt_str() helper.
 
 This neutralises static string scanning (YARA rules, AV string extraction)
 because no plaintext strings appear in the compiled binary.
@@ -89,7 +89,7 @@ class StringEncryptor:
         -------
         str
             Modified IR text with encrypted string globals and a call to
-            dorm_decrypt_str() injected at each use site.
+            JOCKY_decrypt_str() injected at each use site.
         """
         if not _CRYPTO_OK:
             # Graceful degradation — return IR unchanged with a warning comment
@@ -132,7 +132,7 @@ class StringEncryptor:
         Write the C runtime decryption stub that must be compiled alongside
         the encrypted binary.
 
-        The stub implements dorm_decrypt_str(const uint8_t *enc, size_t len,
+        The stub implements JOCKY_decrypt_str(const uint8_t *enc, size_t len,
         const uint8_t *nonce, uint8_t *out) using the embedded key.
         """
         stub = _generate_decrypt_stub(self.key, self._encrypted)
@@ -254,7 +254,7 @@ static void _jk_reconstruct_key(uint8_t out[32]) {{
 #include <wincrypt.h>
 #pragma comment(lib, "advapi32.lib")
 
-int dorm_decrypt_str(const uint8_t *enc, size_t enc_len,
+int JOCKY_decrypt_str(const uint8_t *enc, size_t enc_len,
                      const uint8_t *nonce, uint8_t *out) {{
     uint8_t key[32];
     _jk_reconstruct_key(key);
@@ -297,7 +297,7 @@ cleanup:
 /* Linux: link against OpenSSL */
 #include <openssl/evp.h>
 
-int dorm_decrypt_str(const uint8_t *enc, size_t enc_len,
+int JOCKY_decrypt_str(const uint8_t *enc, size_t enc_len,
                      const uint8_t *nonce, uint8_t *out) {{
     uint8_t key[32];
     _jk_reconstruct_key(key);
@@ -319,7 +319,7 @@ static const uint8_t _jk_nonces[][16] = {{
 {nonce_table}
 }};
 
-int dorm_get_nonce(int string_index, uint8_t out_nonce[16]) {{
+int JOCKY_get_nonce(int string_index, uint8_t out_nonce[16]) {{
     int count = (int)(sizeof(_jk_nonces) / sizeof(_jk_nonces[0]));
     if (string_index < 0 || string_index >= count) return -1;
     memcpy(out_nonce, _jk_nonces[string_index], 16);

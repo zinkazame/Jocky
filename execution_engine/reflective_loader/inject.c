@@ -1,5 +1,5 @@
-/*
- * DORM — Phase 10: Remote Injector (shellcode + LoadLibraryA)
+﻿/*
+ * JOCKY — Phase 10: Remote Injector (shellcode + LoadLibraryA)
  * ==============================================================
  * Writes DLL to a temp file on disk, then creates a remote thread
  * that calls kernel32!LoadLibraryA with the file path.
@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stddef.h>
 
-#define TEMP_DLL_PATH L"C:\\Windows\\Temp\\dorm_injected.dll"
+#define TEMP_DLL_PATH L"C:\\Windows\\Temp\\JOCKY_injected.dll"
 
 /* ── NtCreateThreadEx for CFG bypass ────────────────────────────────────── */
 typedef NTSTATUS (NTAPI *pfnNtCreateThreadEx)(
@@ -30,7 +30,7 @@ typedef NTSTATUS (NTAPI *pfnNtCreateThreadEx)(
 
 #define THREAD_CREATE_FLAGS_BYPASS_CFG_AND_APC 0x00000004
 
-BOOL dorm_reflective_inject(
+BOOL JOCKY_reflective_inject(
     LPCWSTR host_path,
     LPBYTE  dll_bytes,
     DWORD   dll_size)

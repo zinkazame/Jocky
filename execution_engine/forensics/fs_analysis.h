@@ -1,5 +1,5 @@
-/*
- * fs_analysis.h — DORM Phase 13.5: Filesystem Analysis Collector
+﻿/*
+ * fs_analysis.h — JOCKY Phase 13.5: Filesystem Analysis Collector
  * execution_engine/forensics/fs_analysis.h
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
@@ -15,34 +15,34 @@
 #include <windows.h>
 
 /*
- * dorm_scan_mft_sample — read first sample_count inodes from volume_letter
+ * JOCKY_scan_mft_sample — read first sample_count inodes from volume_letter
  * via FSCTL_GET_NTFS_FILE_RECORD. Parses $STANDARD_INFORMATION and $FILE_NAME
  * attributes for per-file timestamps. Writes JSON to output_path.
  * Returns records emitted, -1 on failure.
  */
-int dorm_scan_mft_sample(const char *volume_letter,
+int JOCKY_scan_mft_sample(const char *volume_letter,
                           DWORD       sample_count,
                           const char *output_path);
 
 /*
- * dorm_enum_prefetch — enumerate C:\Windows\Prefetch\*.pf files.
+ * JOCKY_enum_prefetch — enumerate C:\Windows\Prefetch\*.pf files.
  * Detects MAM compression (Win10+), decompresses via RtlDecompressBufferEx,
  * extracts executable name and prefetch hash from SCCA header.
  * Writes JSON to output_path. Returns file count, -1 on failure.
  */
-int dorm_enum_prefetch(const char *output_path);
+int JOCKY_enum_prefetch(const char *output_path);
 
 /*
- * dorm_detect_ads — walk scan_root_utf8 (max max_files files, max depth 4)
+ * JOCKY_detect_ads — walk scan_root_utf8 (max max_files files, max depth 4)
  * using FindFirstStreamW/FindNextStreamW. Flags any stream != "::$DATA".
  * Writes JSON to output_path. Returns ADS stream count, -1 on failure.
  */
-int dorm_detect_ads(const char *scan_root_utf8,
+int JOCKY_detect_ads(const char *scan_root_utf8,
                      DWORD       max_files,
                      const char *output_path);
 
 /*
- * dorm_fs_report — combined wrapper: MFT + prefetch + ADS.
+ * JOCKY_fs_report — combined wrapper: MFT + prefetch + ADS.
  * Returns TRUE on full success.
  */
-BOOL dorm_fs_report(const char *output_path);
+BOOL JOCKY_fs_report(const char *output_path);

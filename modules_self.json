@@ -1,5 +1,5 @@
-{"pid":9200,"modules":[
-  {"base":"0x00007FF7539A0000","size":143360,"name":"test_forensics.exe","path":"D:\\Dinku\\projects\\DORM\\test_forensics.exe"},
+﻿{"pid":9200,"modules":[
+  {"base":"0x00007FF7539A0000","size":143360,"name":"test_forensics.exe","path":"D:\\Dinku\\projects\\JOCKY\\test_forensics.exe"},
   {"base":"0x00007FFE7E1B0000","size":229376,"name":"IPHLPAPI.DLL","path":"C:\\Windows\\System32\\IPHLPAPI.DLL"},
   {"base":"0x00007FFE7FB50000","size":180224,"name":"win32u.dll","path":"C:\\Windows\\System32\\win32u.dll"},
   {"base":"0x00007FFE7FC10000","size":1380352,"name":"ucrtbase.dll","path":"C:\\Windows\\System32\\ucrtbase.dll"},

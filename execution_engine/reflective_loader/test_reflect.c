@@ -1,5 +1,5 @@
-/*
- * DORM — Phase 10 verification harness (cleaned)
+﻿/*
+ * JOCKY — Phase 10 verification harness (cleaned)
  * =================================================
  * Build order:
  *   1. clang -c reflective_loader.c -o reflective_loader.obj \
@@ -37,11 +37,11 @@ typedef NTSTATUS (NTAPI *pfnNtCreateThreadEx)(
 #define THREAD_CREATE_FLAGS_BYPASS_CFG_AND_APC 0x00000004
 
 /* ── Injector declared in inject.c ─────────────────────────────────────── */
-BOOL dorm_reflective_inject(LPCWSTR host_path,
+BOOL JOCKY_reflective_inject(LPCWSTR host_path,
                               LPBYTE  dll_bytes,
                               DWORD   dll_size);
 
-#define MARKER_PATH L"C:\\Windows\\Temp\\dorm_reflect_test.txt"
+#define MARKER_PATH L"C:\\Windows\\Temp\\JOCKY_reflect_test.txt"
 #define DLL_PATH    "execution_engine\\reflective_loader\\test_dll\\test_dll.dll"
 
 /* ── VEH handler ────────────────────────────────────────────────────────── */
@@ -73,7 +73,7 @@ static LPBYTE read_file_raw(const char *path, DWORD *out_size)
 
 int main(void)
 {
-    printf("DORM Phase 10 -- Reflective DLL Injection Verification\n");
+    printf("JOCKY Phase 10 -- Reflective DLL Injection Verification\n");
     printf("=========================================================\n\n");
 
     /* ════════════════════════════════════════════════════════════════════
@@ -229,7 +229,7 @@ int main(void)
 
     printf("Injecting into cmd.exe...     ");
     fflush(stdout);
-    BOOL ok = dorm_reflective_inject(
+    BOOL ok = JOCKY_reflective_inject(
         L"C:\\Windows\\System32\\cmd.exe",
         dll_bytes, dll_size);
     VirtualFree(dll_bytes, 0, MEM_RELEASE);

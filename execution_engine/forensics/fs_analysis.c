@@ -1,26 +1,26 @@
-/*
- * fs_analysis.c — DORM Phase 13.5: Filesystem Analysis Collector
+﻿/*
+ * fs_analysis.c — JOCKY Phase 13.5: Filesystem Analysis Collector
  * execution_engine/forensics/fs_analysis.c
  *
  * Windows x64 | MinGW/Clang | Intel x86-64 ABI
  *
  * Three collectors:
  *
- *   13.5a  dorm_scan_mft_sample — FSCTL_GET_NTFS_FILE_RECORD per inode,
+ *   13.5a  JOCKY_scan_mft_sample — FSCTL_GET_NTFS_FILE_RECORD per inode,
  *                                  parse $STANDARD_INFORMATION + $FILE_NAME
  *
- *   13.5b  dorm_enum_prefetch   — C:\Windows\Prefetch\*.pf enumeration,
+ *   13.5b  JOCKY_enum_prefetch   — C:\Windows\Prefetch\*.pf enumeration,
  *                                  MAM decompression via RtlDecompressBufferEx,
  *                                  SCCA header parse: exe name + hash
  *
- *   13.5c  dorm_detect_ads      — FindFirstStreamW / FindNextStreamW per file,
+ *   13.5c  JOCKY_detect_ads      — FindFirstStreamW / FindNextStreamW per file,
  *                                  flag any stream whose name != "::$DATA"
  *
  * Fixes applied vs original:
  *   1. <stddef.h> added — provides offsetof() used in $FILE_NAME attribute parse
  *   2. WIN32_FIND_STREAM_DATA typedef removed — MinGW winbase.h already defines
  *      it; redefinition causes "typedef redefinition with different types" error
- *   3. FindStreamInfoStandard_DORM enum removed — replaced with plain 0 at
+ *   3. FindStreamInfoStandard_JOCKY enum removed — replaced with plain 0 at
  *      the single call site; enum was also redundant with the SDK definition
  *
  * Link: -lkernel32
@@ -50,7 +50,7 @@
 #endif
 
 /* Xpress+Huffman compression format tag (Win10 prefetch) */
-#define DORM_COMPRESSION_XPRESS_HUFF  0x0208UL
+#define JOCKY_COMPRESSION_XPRESS_HUFF  0x0208UL
 
 typedef NTSTATUS (NTAPI *RtlGetCWS_t)(USHORT, PULONG, PULONG);
 typedef NTSTATUS (NTAPI *RtlDecompress_t)(USHORT, PUCHAR, ULONG,
@@ -76,7 +76,7 @@ typedef struct {
     LARGE_INTEGER Mft2StartLcn;
     LARGE_INTEGER MftZoneStart;
     LARGE_INTEGER MftZoneEnd;
-} DORM_NTFS_VOL;
+} JOCKY_NTFS_VOL;
 
 #ifndef FSCTL_GET_NTFS_VOLUME_DATA
 #define FSCTL_GET_NTFS_VOLUME_DATA \
@@ -88,12 +88,12 @@ typedef struct {
 #endif
 
 /* FSCTL_GET_NTFS_FILE_RECORD input/output buffers */
-typedef struct { LARGE_INTEGER FileReferenceNumber; }  DORM_NFRI;
+typedef struct { LARGE_INTEGER FileReferenceNumber; }  JOCKY_NFRI;
 typedef struct {
     LARGE_INTEGER FileReferenceNumber;
     DWORD         FileRecordLength;
     BYTE          FileRecordBuffer[1];
-} DORM_NFRO;
+} JOCKY_NFRO;
 
 /*
  * MFT FILE record header — NTFS 3.1 layout
@@ -127,7 +127,7 @@ typedef struct {
     WORD      NextAttrId;
     WORD      _pad;
     DWORD     RecordNum;
-} DORM_MFT_HDR;
+} JOCKY_MFT_HDR;
 
 /*
  * Attribute common header
@@ -147,22 +147,22 @@ typedef struct {
     WORD  NameOffset;
     WORD  Flags;
     WORD  Id;
-} DORM_ATTR_HDR;
+} JOCKY_ATTR_HDR;
 
 /*
- * Resident attribute extension (follows DORM_ATTR_HDR when NonResident==0)
+ * Resident attribute extension (follows JOCKY_ATTR_HDR when NonResident==0)
  *   +0x10  ValueLength  DWORD
  *   +0x14  ValueOffset  WORD   byte offset from attribute start to data
  *   +0x16  IndexedFlag  BYTE
  *   +0x17  _pad         BYTE
  */
 typedef struct {
-    DORM_ATTR_HDR H;
+    JOCKY_ATTR_HDR H;
     DWORD ValueLength;
     WORD  ValueOffset;
     BYTE  IndexedFlag;
     BYTE  _pad;
-} DORM_RESIDENT;
+} JOCKY_RESIDENT;
 
 /*
  * $STANDARD_INFORMATION value — first 32 bytes, version-independent
@@ -178,7 +178,7 @@ typedef struct {
     ULONGLONG MftChanged;
     ULONGLONG Accessed;
     DWORD     FileAttr;
-} DORM_STD_INFO;
+} JOCKY_STD_INFO;
 
 /*
  * $FILE_NAME value
@@ -208,7 +208,7 @@ typedef struct {
     BYTE      NameLen;
     BYTE      Namespace;
     WCHAR     Name[1];
-} DORM_FILE_NAME;
+} JOCKY_FILE_NAME;
 
 #define ATTR_STD_INFO   0x10u
 #define ATTR_FILE_NAME  0x30u
@@ -274,7 +274,7 @@ static void ts_now(char *buf, int len)
    13.5a — MFT SAMPLE READER
    ============================================================ */
 
-int dorm_scan_mft_sample(const char *vol_letter,
+int JOCKY_scan_mft_sample(const char *vol_letter,
                           DWORD       sample_count,
                           const char *output_path)
 {
@@ -293,7 +293,7 @@ int dorm_scan_mft_sample(const char *vol_letter,
     }
 
     /* NTFS volume data → BytesPerFileRecordSegment, MftStartLcn */
-    DORM_NTFS_VOL nvd = {0};
+    JOCKY_NTFS_VOL nvd = {0};
     DWORD got = 0;
     if (!DeviceIoControl(hVol, FSCTL_GET_NTFS_VOLUME_DATA,
                          NULL, 0, &nvd, sizeof(nvd), &got, NULL))
@@ -306,7 +306,7 @@ int dorm_scan_mft_sample(const char *vol_letter,
     DWORD rec_sz = nvd.BytesPerFileRecordSegment;
     if (rec_sz < 512 || rec_sz > 65536) rec_sz = 1024;  /* sane default */
 
-    DWORD  out_sz  = (DWORD)(sizeof(DORM_NFRO) - 1 + rec_sz);
+    DWORD  out_sz  = (DWORD)(sizeof(JOCKY_NFRO) - 1 + rec_sz);
     BYTE  *out_buf = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, out_sz);
     if (!out_buf) { CloseHandle(hVol); return -1; }
 
@@ -331,7 +331,7 @@ int dorm_scan_mft_sample(const char *vol_letter,
     BOOL first   = TRUE;
 
     for (DWORD inode = 0; inode < sample_count; inode++) {
-        DORM_NFRI in;
+        JOCKY_NFRI in;
         in.FileReferenceNumber.QuadPart = (LONGLONG)inode;
 
         ZeroMemory(out_buf, out_sz);
@@ -342,10 +342,10 @@ int dorm_scan_mft_sample(const char *vol_letter,
                               out_buf, out_sz, &ret, NULL))
             continue;
 
-        DORM_NFRO    *fro = (DORM_NFRO *)out_buf;
-        DORM_MFT_HDR *hdr = (DORM_MFT_HDR *)fro->FileRecordBuffer;
+        JOCKY_NFRO    *fro = (JOCKY_NFRO *)out_buf;
+        JOCKY_MFT_HDR *hdr = (JOCKY_MFT_HDR *)fro->FileRecordBuffer;
 
-        if (fro->FileRecordLength < sizeof(DORM_MFT_HDR)) continue;
+        if (fro->FileRecordLength < sizeof(JOCKY_MFT_HDR)) continue;
         if (hdr->Signature != MFT_SIG)                    continue;
         if (!(hdr->Flags & MFT_IN_USE))                   continue;
 
@@ -356,20 +356,20 @@ int dorm_scan_mft_sample(const char *vol_letter,
         char  c[32]={0}, m[32]={0}, a[32]={0}, mc[32]={0};
         BOOL  has_si = FALSE, has_fn = FALSE;
 
-        while (aoff + sizeof(DORM_ATTR_HDR) <= fro->FileRecordLength) {
-            DORM_ATTR_HDR *ah = (DORM_ATTR_HDR *)((BYTE *)hdr + aoff);
+        while (aoff + sizeof(JOCKY_ATTR_HDR) <= fro->FileRecordLength) {
+            JOCKY_ATTR_HDR *ah = (JOCKY_ATTR_HDR *)((BYTE *)hdr + aoff);
             if (ah->Type == ATTR_END || ah->Length < 8) break;
 
             /* Only process resident attributes */
             if (!ah->NonResident) {
-                DORM_RESIDENT *rh  = (DORM_RESIDENT *)ah;
+                JOCKY_RESIDENT *rh  = (JOCKY_RESIDENT *)ah;
                 BYTE          *val = (BYTE *)rh + rh->ValueOffset;
 
                 if (ah->Type == ATTR_STD_INFO
                     && !has_si
-                    && rh->ValueLength >= (DWORD)sizeof(DORM_STD_INFO))
+                    && rh->ValueLength >= (DWORD)sizeof(JOCKY_STD_INFO))
                 {
-                    DORM_STD_INFO *si = (DORM_STD_INFO *)val;
+                    JOCKY_STD_INFO *si = (JOCKY_STD_INFO *)val;
                     ft_to_iso(si->Created,    c,  sizeof(c));
                     ft_to_iso(si->Modified,   m,  sizeof(m));
                     ft_to_iso(si->Accessed,   a,  sizeof(a));
@@ -378,9 +378,9 @@ int dorm_scan_mft_sample(const char *vol_letter,
                 }
 
                 if (ah->Type == ATTR_FILE_NAME
-                    && rh->ValueLength >= (DWORD)offsetof(DORM_FILE_NAME, Name))
+                    && rh->ValueLength >= (DWORD)offsetof(JOCKY_FILE_NAME, Name))
                 {
-                    DORM_FILE_NAME *fn = (DORM_FILE_NAME *)val;
+                    JOCKY_FILE_NAME *fn = (JOCKY_FILE_NAME *)val;
                     /* prefer Win32 (1) or Win32&DOS (3) namespace */
                     if (!has_fn || fn->Namespace == 1 || fn->Namespace == 3) {
                         int nc = (int)fn->NameLen;
@@ -436,10 +436,10 @@ int dorm_scan_mft_sample(const char *vol_letter,
  *   +0x08  compressed payload (Xpress+Huffman)
  *   After decompression → standard SCCA header above at offset 0
  */
-#define DORM_MAM_SIG   0x044D414DUL   /* "MAM\x04" little-endian */
-#define DORM_SCCA_MAG  0x41434353UL   /* "SCCA"    little-endian */
+#define JOCKY_MAM_SIG   0x044D414DUL   /* "MAM\x04" little-endian */
+#define JOCKY_SCCA_MAG  0x41434353UL   /* "SCCA"    little-endian */
 
-int dorm_enum_prefetch(const char *output_path)
+int JOCKY_enum_prefetch(const char *output_path)
 {
     /* *prefetch: the OS logging its own crimes, compressed with its own key* */
 
@@ -465,7 +465,7 @@ int dorm_enum_prefetch(const char *output_path)
     BYTE *ws = NULL;
     if (pfGW && pfD) {
         ULONG wssz = 0, fssz = 0;
-        if (NT_SUCCESS(pfGW((USHORT)DORM_COMPRESSION_XPRESS_HUFF,
+        if (NT_SUCCESS(pfGW((USHORT)JOCKY_COMPRESSION_XPRESS_HUFF,
                             &wssz, &fssz)) && wssz > 0)
             ws = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, wssz);
     }
@@ -514,7 +514,7 @@ int dorm_enum_prefetch(const char *output_path)
                             BYTE *dbuf = NULL;
 
                             /* MAM-compressed? */
-                            if (*(DWORD *)raw == DORM_MAM_SIG
+                            if (*(DWORD *)raw == JOCKY_MAM_SIG
                                 && ws && pfD && nr > 8)
                             {
                                 ULONG dsz = *(ULONG *)(raw + 4);
@@ -525,7 +525,7 @@ int dorm_enum_prefetch(const char *output_path)
                                     if (dbuf) {
                                         ULONG actual = 0;
                                         NTSTATUS s = pfD(
-                                            (USHORT)DORM_COMPRESSION_XPRESS_HUFF,
+                                            (USHORT)JOCKY_COMPRESSION_XPRESS_HUFF,
                                             dbuf, dsz,
                                             raw + 8, nr - 8,
                                             &actual, ws);
@@ -541,7 +541,7 @@ int dorm_enum_prefetch(const char *output_path)
 
                             if (scca) {
                                 DWORD magic = *(DWORD *)(scca + 4);
-                                if (magic == DORM_SCCA_MAG) {
+                                if (magic == JOCKY_SCCA_MAG) {
                                     /* exe name: WCHAR[29] at offset 0x10 */
                                     WCHAR exew[30] = {0};
                                     memcpy(exew, scca + 0x10, 58);
@@ -707,7 +707,7 @@ static void walk_dir_for_ads(const WCHAR           *dir,
     FindClose(hFind);
 }
 
-int dorm_detect_ads(const char *scan_root_utf8,
+int JOCKY_detect_ads(const char *scan_root_utf8,
                      DWORD       max_files,
                      const char *output_path)
 {
@@ -763,11 +763,11 @@ int dorm_detect_ads(const char *scan_root_utf8,
    COMBINED REPORT
    ============================================================ */
 
-BOOL dorm_fs_report(const char *output_path)
+BOOL JOCKY_fs_report(const char *output_path)
 {
-    int mft = dorm_scan_mft_sample("C", 1000, "mft_sample.json");
-    int pf  = dorm_enum_prefetch("prefetch.json");
-    int ads = dorm_detect_ads("C:\\Windows\\Temp", 500, "ads.json");
+    int mft = JOCKY_scan_mft_sample("C", 1000, "mft_sample.json");
+    int pf  = JOCKY_enum_prefetch("prefetch.json");
+    int ads = JOCKY_detect_ads("C:\\Windows\\Temp", 500, "ads.json");
 
     FILE *fp = open_output(output_path, "w");
     if (!fp) return (mft >= 0 && pf >= 0 && ads >= 0);
