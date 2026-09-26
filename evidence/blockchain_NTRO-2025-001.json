@@ -1,0 +1,424 @@
+{
+  "case_id": "NTRO-2025-001",
+  "investigator": "INV-ALPHA",
+  "pub_key": "664a1733dc7fa1498c7432a911d11e71654fb8a245ff19cd3e7fafc41c7260f1",
+  "blocks": [
+    {
+      "index": 0,
+      "timestamp": "2026-09-25T00:24:02.143Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "INVESTIGATION_START",
+      "data": {
+        "framework": "JOCKY",
+        "version": "1.0.0",
+        "case_id": "NTRO-2025-001",
+        "pub_key": "664a1733dc7fa1498c7432a911d11e71654fb8a245ff19cd3e7fafc41c7260f1"
+      },
+      "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "296ca187dea51f228e1ab3fc07a9bc1f2dd5d6ae007e101a03366bc6ca0a8f49",
+      "signature": "6ee37c83035d8647a6430cada8c87f8cb74624977c96d8b22a16435a9dd116a25973200cfc6b20dbd7f915abb5efd9cfa5be3e0bfc9a3c4ce8d0ef17f2bb0c00",
+      "nonce": 0
+    },
+    {
+      "index": 1,
+      "timestamp": "2026-09-25T00:24:37.557Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-dc01",
+        "target": "DC-SERVER-01"
+      },
+      "prev_hash": "296ca187dea51f228e1ab3fc07a9bc1f2dd5d6ae007e101a03366bc6ca0a8f49",
+      "hash": "fd5be301ccce7753f47643843ff4525cdf9644d10762d02a74d17a22b1c05c5c",
+      "signature": "8177bf2e04bb60a675b010cddbfed305bd5ef8a7966f1b1a9d9e06d50b4e0988c318815888aea6a433a4da5b7c6bce1de8727ff18c5bfb401e36d80d956e5a0f",
+      "nonce": 0
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-09-25T00:24:37.561Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-ws01",
+        "target": "WORKSTATION-FINANCE"
+      },
+      "prev_hash": "fd5be301ccce7753f47643843ff4525cdf9644d10762d02a74d17a22b1c05c5c",
+      "hash": "1f7cb2421bad6e7319c917493e00fe861f8daa536563f753a50ed424e3ca6650",
+      "signature": "f37a2d338f8bbc053b151e673b35db1d5523fd79044c90b2ffceb89e4d4a2573f866211e9f186e78df71ec45cde5f5ea0be79faec9b6bd022680d88f9f98b306",
+      "nonce": 0
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-09-25T00:24:37.565Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-srv02",
+        "target": "FILE-SERVER-02"
+      },
+      "prev_hash": "1f7cb2421bad6e7319c917493e00fe861f8daa536563f753a50ed424e3ca6650",
+      "hash": "c02a068ce69697209425721f760c735a8927c0408fff4c6686f87eb1da0e701f",
+      "signature": "08db6a2450cb2cfb65b4d97523796e7631c8591b00ad4c9389c073a3bc6130cbe4a54ad459765685843cd75f819783726d8b222ebfe1a869cc9ecd5942cd2206",
+      "nonce": 0
+    },
+    {
+      "index": 4,
+      "timestamp": "2026-09-25T00:24:37.571Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "TASK_DISPATCHED",
+      "data": {
+        "cmd": "proc_list",
+        "agent": "agent-dc01"
+      },
+      "prev_hash": "c02a068ce69697209425721f760c735a8927c0408fff4c6686f87eb1da0e701f",
+      "hash": "864f28a1c8908a137e993e42f1e9a7159dc3fa4dc95e31d71024acdc6e174623",
+      "signature": "5c72f535e692c92997da05c0891f0fb5a27cb924d07de0500ca25419a3fa396746de5f5f02b9644ce409ce17dbf1bdb955004201737518d6dc4c836da4247e02",
+      "nonce": 0
+    },
+    {
+      "index": 5,
+      "timestamp": "2026-09-25T00:24:37.576Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-dc01",
+        "cmd": "proc_list",
+        "count": 87
+      },
+      "prev_hash": "864f28a1c8908a137e993e42f1e9a7159dc3fa4dc95e31d71024acdc6e174623",
+      "hash": "00ace6769ca35cb48276281304e1b0f2f40224b8f258bbed61a0019da674c63f",
+      "signature": "f905cbaf5b53a5e12c00167d51e5efc2ffd4330f756a2b7f00a5ffb953a2901460f7bfca6196a8cf6ad5d01aee7e211c70597bd7e59a72cee508537df1d89b0c",
+      "nonce": 0
+    },
+    {
+      "index": 6,
+      "timestamp": "2026-09-25T00:24:37.580Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "ANOMALY_DETECTED",
+      "data": {
+        "agent": "agent-dc01",
+        "threat": "mimikatz.exe detected"
+      },
+      "prev_hash": "00ace6769ca35cb48276281304e1b0f2f40224b8f258bbed61a0019da674c63f",
+      "hash": "14ec3603d24c7945f90b0e56d37e8f9896c1f7d139da067ab914b2f22000b09d",
+      "signature": "d2035a7a0b4ea5570a05f7b88cd7c2460fd6121ee96863374a6a509179f20654fb13af6683810f15593b2808aa972c8c3895db3297408e8288dc158e41d93605",
+      "nonce": 0
+    },
+    {
+      "index": 7,
+      "timestamp": "2026-09-25T00:24:37.585Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-ws01",
+        "cmd": "net_state",
+        "connections": 12
+      },
+      "prev_hash": "14ec3603d24c7945f90b0e56d37e8f9896c1f7d139da067ab914b2f22000b09d",
+      "hash": "891138cbc381b48d9829c525ff8b818994d824316b1dcc26dd6bafecc8d22aaa",
+      "signature": "cdbfa54c87d82f79fb02d8e36b001ae53ff67350fa0681a80351ff9bfc33e50174ee2802c088adcd8dca825b8d17bfdaad71ad7c1c158c8b7af07fa0962a4b04",
+      "nonce": 0
+    },
+    {
+      "index": 8,
+      "timestamp": "2026-09-25T00:24:37.590Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-srv02",
+        "cmd": "fs_analysis",
+        "files": 4231
+      },
+      "prev_hash": "891138cbc381b48d9829c525ff8b818994d824316b1dcc26dd6bafecc8d22aaa",
+      "hash": "3369f776ce94369b5e5021d0226174e2d406bd0e45d4253ae5fadd63e47f777e",
+      "signature": "558269548f2be9afa6d3471bfda850eff579217f096881480ca547f0438e5cf9fe2856a1778bf233230b0a6e8f394b4eafbe342d247248fe2f972cf7842ca30e",
+      "nonce": 0
+    },
+    {
+      "index": 9,
+      "timestamp": "2026-09-25T00:24:41.605Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-dc01",
+        "target": "DC-SERVER-01"
+      },
+      "prev_hash": "3369f776ce94369b5e5021d0226174e2d406bd0e45d4253ae5fadd63e47f777e",
+      "hash": "e020f7f9c7368ef87fcf566c52ad31279ee833efdf4223a9881c0b00a00f6406",
+      "signature": "da9c429301e32cd2f0ead458ca53ee97c622eb9d8cb46fabba774cbbb995910deaaa923aa6e164f6db06abd2b81e529c190f367c0cde4fee457c92e1b96a5609",
+      "nonce": 0
+    },
+    {
+      "index": 10,
+      "timestamp": "2026-09-25T00:24:41.610Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-ws01",
+        "target": "WORKSTATION-FINANCE"
+      },
+      "prev_hash": "e020f7f9c7368ef87fcf566c52ad31279ee833efdf4223a9881c0b00a00f6406",
+      "hash": "02aaeb6631a21882bc8b8d89e8f00aa8a1dcdfc4fcc82636b40f250831e18154",
+      "signature": "33c4acc5ca7cd87cc59050814515603c942af590536223c97b560e4efab8b2a065a82639ab7de801e60d92972635c0670aaa0591107a3355271d6b987019cb06",
+      "nonce": 0
+    },
+    {
+      "index": 11,
+      "timestamp": "2026-09-25T00:24:41.613Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent": "agent-srv02",
+        "target": "FILE-SERVER-02"
+      },
+      "prev_hash": "02aaeb6631a21882bc8b8d89e8f00aa8a1dcdfc4fcc82636b40f250831e18154",
+      "hash": "f03c2e64df63c6aa66688bd327ab02276352ee7ed583a1d2b6e283967542198e",
+      "signature": "d554a4b1580e49fb1bc7fcb7d37360a899656e05907dc36ccb35b6b60affb999d5cb2f835dfab741f910f63052a28219048373b2c814c4de108661097ce49303",
+      "nonce": 0
+    },
+    {
+      "index": 12,
+      "timestamp": "2026-09-25T00:24:41.618Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "TASK_DISPATCHED",
+      "data": {
+        "cmd": "proc_list",
+        "agent": "agent-dc01"
+      },
+      "prev_hash": "f03c2e64df63c6aa66688bd327ab02276352ee7ed583a1d2b6e283967542198e",
+      "hash": "9c0126365ad03f77285a428c113fe0916898a69612633b9c2c51f256ace4b876",
+      "signature": "1baea3a453a0fcaf6da27c1a416d147e1c796da2388431c3a1c1a291082441062f9631c2087d0b5ac4825927a3d258e9f0f12f7ee6c46f03a01623c267af460c",
+      "nonce": 0
+    },
+    {
+      "index": 13,
+      "timestamp": "2026-09-25T00:24:41.624Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-dc01",
+        "cmd": "proc_list",
+        "count": 87
+      },
+      "prev_hash": "9c0126365ad03f77285a428c113fe0916898a69612633b9c2c51f256ace4b876",
+      "hash": "5082177e794774fc48324ff1ee7ad765f49746edb2d03fc25ff13a08ed11cc2b",
+      "signature": "15e2d94fac84aba308570a9b741c311e1259ae17436abdc3f9fb04a8087ac5d9aef83b64e6cd0f2a65740739e886841a5f281ae4a26d2eaaf4aa20222e713404",
+      "nonce": 0
+    },
+    {
+      "index": 14,
+      "timestamp": "2026-09-25T00:24:41.628Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "ANOMALY_DETECTED",
+      "data": {
+        "agent": "agent-dc01",
+        "threat": "mimikatz.exe detected"
+      },
+      "prev_hash": "5082177e794774fc48324ff1ee7ad765f49746edb2d03fc25ff13a08ed11cc2b",
+      "hash": "7faa465eccb44380a941e636b6a5c72d48bf0e500d2874ac3a4d00765e592a0c",
+      "signature": "0c6f6db5e40efe1bcf975220bd5e80f2cee0598a7e84db2d2f89ab55f7fc4003bc981c2ad8a1f3d30ad56689343e1aaa4ab579495934a1ae0465c11da76a7804",
+      "nonce": 0
+    },
+    {
+      "index": 15,
+      "timestamp": "2026-09-25T00:24:41.633Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-ws01",
+        "cmd": "net_state",
+        "connections": 12
+      },
+      "prev_hash": "7faa465eccb44380a941e636b6a5c72d48bf0e500d2874ac3a4d00765e592a0c",
+      "hash": "0c7398dd916b07be3ac682b74fa45e0ce31f8bf14ea1fb509807bd571c9a4c8a",
+      "signature": "5c2a9ed281b121ded5dfed4329233dcf9960f2182fbfe656a5b3c2692be87408b296f4573b8120f1fe76ac6e7316277c4a80e86f245e9d5ad21e239e52acb10f",
+      "nonce": 0
+    },
+    {
+      "index": 16,
+      "timestamp": "2026-09-25T00:24:41.638Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent": "agent-srv02",
+        "cmd": "fs_analysis",
+        "files": 4231
+      },
+      "prev_hash": "0c7398dd916b07be3ac682b74fa45e0ce31f8bf14ea1fb509807bd571c9a4c8a",
+      "hash": "95b1c28770fa1509a230772e2a73b029b64d6efedd80fc215904f4df513b300e",
+      "signature": "3907ec3e072132e59032d5c6bdac873f7ce222cb6943c1e33574762a58a79e6596dff7302292d2489e5f7543a52e92f866744ce7a8dec19be1bd28f61bd1ed0b",
+      "nonce": 0
+    },
+    {
+      "index": 17,
+      "timestamp": "2026-09-25T08:29:42.690Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "AGENT_DEPLOYED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "hostname": "dinks",
+        "platform": "Windows-11-10.0.26200-SP0"
+      },
+      "prev_hash": "95b1c28770fa1509a230772e2a73b029b64d6efedd80fc215904f4df513b300e",
+      "hash": "cc03a1bd4a1ba250e54dba73c918fb2a2d687305a3583453b4c0463de12bfe77",
+      "signature": "c0d09eda1ccd1f6d1f1dcd1571d4f9e065ec0311ae6fe4e09578001b26436a2609fe5aa11a53f688aba2a86d880a21c274b457689a76602d21e223fda57e8b04",
+      "nonce": 0
+    },
+    {
+      "index": 18,
+      "timestamp": "2026-09-25T08:29:50.898Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "hostname": "DINKS",
+        "seq": 1,
+        "collectors": [
+          "proc_list",
+          "net_state",
+          "reg_persistence",
+          "event_log",
+          "usb_history",
+          "prefetch",
+          "browser_hist",
+          "scheduled_tasks"
+        ],
+        "proc_count": 202,
+        "net_count": 115,
+        "suspicious": 328,
+        "decrypted": true
+      },
+      "prev_hash": "cc03a1bd4a1ba250e54dba73c918fb2a2d687305a3583453b4c0463de12bfe77",
+      "hash": "61a4282ad962c5fc1362f154fb0e8994e2be4b14e56b121054328c9e86238c86",
+      "signature": "36306b846b76b00f6f94e5c61825e2a08654f5f9426f250a11c58b77d767504af38c1c146041a9127e18ea4f2e290c5755cb412308d76bd4325b70edc508c301",
+      "nonce": 0
+    },
+    {
+      "index": 19,
+      "timestamp": "2026-09-25T08:29:50.915Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "ANOMALY_DETECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "suspicious_count": 328,
+        "seq": 1
+      },
+      "prev_hash": "61a4282ad962c5fc1362f154fb0e8994e2be4b14e56b121054328c9e86238c86",
+      "hash": "8f4f0c458e847f4c61befac92045937e6c5350076a8648c37f528dec374be6f9",
+      "signature": "a607d026ccbbf7f1ee84f2cc89bbaf7fbb0b7eee048221c9abee79ba0ecab869e5580f0741e7d0070f0b7e62ad55161e30fed98503ce1d09898c1956661ce507",
+      "nonce": 0
+    },
+    {
+      "index": 20,
+      "timestamp": "2026-09-25T08:30:56.892Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "hostname": "DINKS",
+        "seq": 2,
+        "collectors": [
+          "proc_list",
+          "net_state",
+          "reg_persistence",
+          "event_log",
+          "usb_history",
+          "prefetch",
+          "browser_hist",
+          "scheduled_tasks"
+        ],
+        "proc_count": 201,
+        "net_count": 124,
+        "suspicious": 327,
+        "decrypted": true
+      },
+      "prev_hash": "8f4f0c458e847f4c61befac92045937e6c5350076a8648c37f528dec374be6f9",
+      "hash": "d560450d91db178b14bef261227e0941027471d027c6f6d96dee1e498d2bb3ce",
+      "signature": "5c3801f9ee554df3fbca4d6264864d8158200e0979617bc52f2f58cdce582329cec191e27ecb4f7f400a605c91de1ad8321216befef257db179513522956340b",
+      "nonce": 0
+    },
+    {
+      "index": 21,
+      "timestamp": "2026-09-25T08:30:56.892Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "ANOMALY_DETECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "suspicious_count": 327,
+        "seq": 2
+      },
+      "prev_hash": "d560450d91db178b14bef261227e0941027471d027c6f6d96dee1e498d2bb3ce",
+      "hash": "9695c6f2c442963fcb4523d2103856b1e378c4e76e42584747b7b1628a08d061",
+      "signature": "210bb13564688eecfbc18b400dd8e01eb8a6f599180e698ad13952c9af28c6572bea87075bb0c89fc2d43087909be33fabbb0caa5245cde1a717abbe1ee5b008",
+      "nonce": 0
+    },
+    {
+      "index": 22,
+      "timestamp": "2026-09-25T08:32:03.531Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "EVIDENCE_COLLECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "hostname": "DINKS",
+        "seq": 3,
+        "collectors": [
+          "proc_list",
+          "net_state",
+          "reg_persistence",
+          "event_log",
+          "usb_history",
+          "prefetch",
+          "browser_hist",
+          "scheduled_tasks"
+        ],
+        "proc_count": 201,
+        "net_count": 122,
+        "suspicious": 327,
+        "decrypted": true
+      },
+      "prev_hash": "9695c6f2c442963fcb4523d2103856b1e378c4e76e42584747b7b1628a08d061",
+      "hash": "fb39306c2153ea8b0f647a9a3f5eb66b8cde1d89b250b8ddabb3ea0bd3db6bdd",
+      "signature": "51fb5ff62af0045b499d00f15e0b2bda627d67a1f47453b9a26e7f11f79af998f9e6e65f653a5eaaebebc665045745ace5fc54560946a2c462b57bb0e672ff09",
+      "nonce": 0
+    },
+    {
+      "index": 23,
+      "timestamp": "2026-09-25T08:32:03.531Z",
+      "case_id": "NTRO-2025-001",
+      "investigator": "INV-ALPHA",
+      "event_type": "ANOMALY_DETECTED",
+      "data": {
+        "agent_id": "jocky-c8f74f00",
+        "suspicious_count": 327,
+        "seq": 3
+      },
+      "prev_hash": "fb39306c2153ea8b0f647a9a3f5eb66b8cde1d89b250b8ddabb3ea0bd3db6bdd",
+      "hash": "87a8f79ba7113cbca4b5616d9f285b4ea9a13aba90fe1fd5c6de604e4d120f76",
+      "signature": "08698b60adb6a1d2da3dc02c0eaf83ef22c230572215b7d0e1a6eee863590af7736d900cea952b0639bba84f1b8f401bbe567d04dc82c8d4355d269c9fdf870e",
+      "nonce": 0
+    }
+  ]
+}

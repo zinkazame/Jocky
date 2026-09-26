@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JOCKY — Forensic Intelligence Framework</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:      #0A0E1A;
+    --surface: #111827;
+    --card:    #1F2937;
+    --border:  #374151;
+    --cyan:    #00D4FF;
+    --purple:  #7B2FBE;
+    --orange:  #FF6B35;
+    --green:   #10B981;
+    --red:     #EF4444;
+    --text:    #E8EAF0;
+    --muted:   #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', monospace; font-size: 13px;
+    min-height: 100vh;
+  }
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 24px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 10;
+  }
+  .logo { font-size: 20px; font-weight: 700; color: var(--cyan); letter-spacing: 3px; }
+  .logo span { color: var(--purple); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  .dot-red   { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  .grid { display: grid; gap: 16px; padding: 16px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .card-title {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .metric { font-size: 32px; font-weight: 700; color: var(--cyan); }
+  .metric-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { color: var(--muted); font-weight: 600; padding: 8px 12px;
+       text-align: left; border-bottom: 1px solid var(--border);
+       font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(0,212,255,.04); }
+
+  .badge {
+    padding: 2px 8px; border-radius: 4px; font-size: 10px;
+    font-weight: 600; text-transform: uppercase;
+  }
+  .badge-green  { background: rgba(16,185,129,.2); color: var(--green); }
+  .badge-cyan   { background: rgba(0,212,255,.2);  color: var(--cyan); }
+  .badge-orange { background: rgba(255,107,53,.2); color: var(--orange); }
+  .badge-red    { background: rgba(239,68,68,.2);  color: var(--red); }
+  .badge-purple { background: rgba(123,47,190,.2); color: #A78BFA; }
+  .badge-muted  { background: rgba(107,114,128,.2);color: var(--muted); }
+
+  #evidence-stream {
+    height: 320px; overflow-y: auto; font-family: monospace; font-size: 11px;
+  }
+  .ev-entry {
+    padding: 6px 8px; border-bottom: 1px solid rgba(55,65,81,.4);
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .ev-entry:hover { background: rgba(0,212,255,.03); }
+  .ev-time { color: var(--muted); white-space: nowrap; min-width: 80px; }
+  .ev-agent { color: var(--cyan); min-width: 110px; }
+  .ev-cmd   { color: var(--orange); min-width: 100px; }
+  .ev-data  { color: var(--text); opacity: .7; word-break: break-all; }
+
+  #blockchain-log {
+    height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px;
+  }
+  .block-entry {
+    padding: 8px 10px; border-left: 3px solid var(--purple);
+    margin-bottom: 6px; background: rgba(123,47,190,.05);
+    border-radius: 0 4px 4px 0;
+  }
+  .block-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .block-num  { color: var(--purple); font-weight: 700; }
+  .block-hash { color: var(--muted); font-size: 10px; }
+  .block-event{ color: var(--cyan); font-size: 11px; }
+  .block-data { color: var(--text); opacity: .6; font-size: 10px; }
+
+  .verify-btn {
+    background: var(--purple); color: white; border: none; padding: 6px 14px;
+    border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;
+  }
+  .verify-btn:hover { background: #8B3FD0; }
+  .seed-btn {
+    background: var(--cyan); color: #0A0E1A; border: none; padding: 6px 14px;
+    border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;
+  }
+  #verify-result {
+    margin-top: 10px; padding: 10px; background: var(--surface);
+    border-radius: 4px; font-family: monospace; font-size: 10px;
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+    display: none;
+  }
+  .section-header {
+    padding: 8px 24px 4px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .live-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--green);
+  }
+  canvas { max-height: 180px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">JOCKY <span>FORENSIC</span></div>
+  <div style="display:flex;gap:20px;align-items:center">
+    <div class="live-indicator">
+      <span class="status-dot dot-green" id="conn-dot"></span>
+      <span id="conn-label">CONNECTING...</span>
+    </div>
+    <div style="color:var(--muted);font-size:11px" id="clock"></div>
+    <button class="seed-btn" onclick="seedDemo()">SEED DEMO</button>
+  </div>
+</header>
+
+<!-- metrics row -->
+<div class="grid grid-4" style="padding:16px 16px 0">
+  <div class="card">
+    <div class="card-title">Active Agents</div>
+    <div class="metric" id="m-agents">0</div>
+    <div class="metric-label">targets online</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Evidence Collected</div>
+    <div class="metric" id="m-evidence">0</div>
+    <div class="metric-label">total records</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Blockchain Blocks</div>
+    <div class="metric" id="m-blocks">0</div>
+    <div class="metric-label">chain length</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Chain Integrity</div>
+    <div class="metric" id="m-integrity" style="font-size:20px;padding-top:6px">—</div>
+    <div class="metric-label" id="m-integrity-label">not verified</div>
+  </div>
+</div>
+
+<!-- agents + evidence stream -->
+<div class="grid grid-2" style="padding:16px 16px 0">
+  <div class="card">
+    <div class="card-title">
+      Agent Status
+      <span style="margin-left:auto;font-size:10px;color:var(--muted)" id="agent-count-label"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Agent ID</th><th>Label</th><th>State</th>
+          <th>Check-ins</th><th>Results</th><th>Alive</th>
+        </tr>
+      </thead>
+      <tbody id="agent-table-body">
+        <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">
+          No agents registered — click SEED DEMO
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      Live Evidence Stream
+      <span class="live-indicator" style="margin-left:auto">
+        <span class="status-dot dot-green" style="width:6px;height:6px"></span>SSE
+      </span>
+    </div>
+    <div id="evidence-stream">
+      <div style="color:var(--muted);padding:20px;text-align:center">
+        Waiting for evidence...
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- blockchain + chart -->
+<div class="grid grid-2" style="padding:16px 16px 0">
+  <div class="card">
+    <div class="card-title">
+      Chain of Custody — Blockchain
+      <button class="verify-btn" onclick="verifyChain()" style="margin-left:auto">VERIFY CHAIN</button>
+    </div>
+    <div id="blockchain-log">
+      <div style="color:var(--muted);padding:20px;text-align:center">
+        No blocks yet
+      </div>
+    </div>
+    <div id="verify-result"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Evidence by Type</div>
+    <canvas id="evidence-chart"></canvas>
+    <div style="margin-top:12px">
+      <div class="card-title">Case Summary</div>
+      <div id="case-summary" style="font-family:monospace;font-size:11px;color:var(--muted)">
+        Loading...
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="height:24px"></div>
+
+<script>
+const API = 'http://127.0.0.1:8000';
+let evidenceCount = 0;
+let chartInstance = null;
+const chartData = { labels:[], data:[] };
+
+// ── clock ──────────────────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
+}, 1000);
+
+// ── SSE connection ─────────────────────────────────────────────────────────
+function connectSSE() {
+  const es = new EventSource(API + '/stream');
+
+  es.onopen = () => {
+    document.getElementById('conn-dot').className   = 'status-dot dot-green';
+    document.getElementById('conn-label').textContent = 'LIVE';
+  };
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'result') {
+      addEvidenceEntry(msg);
+      evidenceCount++;
+      document.getElementById('m-evidence').textContent = evidenceCount;
+      refreshStatus();
+    }
+  };
+
+  es.onerror = () => {
+    document.getElementById('conn-dot').className    = 'status-dot dot-red';
+    document.getElementById('conn-label').textContent = 'RECONNECTING...';
+    setTimeout(connectSSE, 3000);
+    es.close();
+  };
+}
+connectSSE();
+
+// ── evidence stream ────────────────────────────────────────────────────────
+function addEvidenceEntry(msg) {
+  const stream = document.getElementById('evidence-stream');
+  const ts = new Date(msg.ts * 1000).toISOString().slice(11,19);
+  const d  = msg.data || {};
+  const dataStr = JSON.stringify(d.data || {}).slice(0, 80);
+
+  const entry = document.createElement('div');
+  entry.className = 'ev-entry';
+  entry.innerHTML =
+    `<span class="ev-time">${ts}</span>` +
+    `<span class="ev-agent">${(msg.agent_id||'').slice(0,12)}</span>` +
+    `<span class="ev-cmd">${d.cmd_type||'event'}</span>` +
+    `<span class="ev-data">${dataStr}</span>`;
+
+  // clear placeholder
+  if (stream.querySelector('[colspan]')) stream.innerHTML = '';
+  stream.insertBefore(entry, stream.firstChild);
+
+  // update chart
+  updateChart(d.cmd_type || 'unknown');
+}
+
+// ── chart ──────────────────────────────────────────────────────────────────
+function updateChart(label) {
+  const idx = chartData.labels.indexOf(label);
+  if (idx === -1) {
+    chartData.labels.push(label);
+    chartData.data.push(1);
+  } else {
+    chartData.data[idx]++;
+  }
+  if (chartInstance) {
+    chartInstance.data.labels   = chartData.labels;
+    chartInstance.data.datasets[0].data = chartData.data;
+    chartInstance.update();
+  }
+}
+
+const ctx = document.getElementById('evidence-chart').getContext('2d');
+chartInstance = new Chart(ctx, {
+  type: 'doughnut',
+  data: {
+    labels: [],
+    datasets: [{
+      data: [],
+      backgroundColor: ['#00D4FF','#7B2FBE','#FF6B35','#10B981','#F59E0B','#EF4444'],
+      borderColor:     '#1F2937',
+      borderWidth:     2,
+    }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins: {
+      legend: { labels:{ color:'#E8EAF0', font:{size:11} } }
+    }
+  }
+});
+
+// ── agent table ────────────────────────────────────────────────────────────
+function renderAgents(agents) {
+  const tbody = document.getElementById('agent-table-body');
+  const entries = Object.entries(agents);
+  document.getElementById('agent-count-label').textContent =
+    `${entries.length} registered`;
+  document.getElementById('m-agents').textContent =
+    entries.filter(([,v]) => v.is_alive).length;
+
+  if (!entries.length) return;
+  tbody.innerHTML = entries.map(([id, a]) => {
+    const stateClass = {
+      'CONNECTED':'badge-green','TASKED':'badge-orange',
+      'IDLE':'badge-cyan','LOST':'badge-red',
+      'PENDING':'badge-muted','TERMINATED':'badge-red',
+      'COLLECTING':'badge-purple',
+    }[a.state] || 'badge-muted';
+    return `<tr>
+      <td style="font-family:monospace;color:var(--cyan)">${id}</td>
+      <td>${a.label||id}</td>
+      <td><span class="badge ${stateClass}">${a.state}</span></td>
+      <td>${a.checkin_count||0}</td>
+      <td>${a.results_count||0}</td>
+      <td><span class="badge ${a.is_alive?'badge-green':'badge-red'}">
+        ${a.is_alive?'YES':'NO'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── blockchain log ─────────────────────────────────────────────────────────
+function renderBlockchain(blocks) {
+  const log = document.getElementById('blockchain-log');
+  document.getElementById('m-blocks').textContent = blocks.length;
+  if (!blocks.length) return;
+
+  log.innerHTML = [...blocks].reverse().map(b => {
+    const evColor = {
+      'INVESTIGATION_START':'#10B981','AGENT_DEPLOYED':'#00D4FF',
+      'EVIDENCE_COLLECTED':'#F59E0B','TASK_DISPATCHED':'#7B2FBE',
+      'CHAIN_VERIFIED':'#10B981','ANOMALY_DETECTED':'#EF4444',
+      'INVESTIGATION_CLOSED':'#6B7280',
+    }[b.event_type] || '#E8EAF0';
+
+    return `<div class="block-entry">
+      <div class="block-header">
+        <span class="block-num">#${b.index}</span>
+        <span style="color:${evColor};font-size:11px;font-weight:600">${b.event_type}</span>
+        <span class="block-hash">${b.hash.slice(0,16)}...</span>
+      </div>
+      <div class="block-data">
+        prev: ${b.prev_hash.slice(0,12)}...
+        &nbsp;|&nbsp; ${b.timestamp.slice(0,19)}
+        &nbsp;|&nbsp; ${JSON.stringify(b.data).slice(0,60)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── polling ────────────────────────────────────────────────────────────────
+async function refreshStatus() {
+  try {
+    const [health, coc, cocSummary] = await Promise.all([
+      fetch(API+'/agents').then(r=>r.json()),
+      fetch(API+'/coc/blocks').then(r=>r.json()).catch(()=>({blocks:[]})),
+      fetch(API+'/coc/summary').then(r=>r.json()).catch(()=>({})),
+    ]);
+
+    if (health.agents) renderAgents(health.agents);
+    if (coc.blocks)    renderBlockchain(coc.blocks);
+
+    // case summary
+    const s = cocSummary;
+    if (s.blocks) {
+      document.getElementById('case-summary').innerHTML =
+        `Case: <span style="color:var(--cyan)">${s.case_id||'—'}</span><br>` +
+        `Investigator: <span style="color:var(--cyan)">${s.investigator||'—'}</span><br>` +
+        `Blocks: <span style="color:var(--purple)">${s.blocks}</span><br>` +
+        `Genesis: <span style="color:var(--muted)">${(s.genesis_hash||'').slice(0,20)}...</span><br>` +
+        `Latest:  <span style="color:var(--muted)">${(s.latest_hash||'').slice(0,20)}...</span>`;
+    }
+  } catch(e) { console.warn('status refresh failed:', e); }
+}
+
+// refresh every 5 seconds
+setInterval(refreshStatus, 5000);
+refreshStatus();
+
+// ── verify chain ────────────────────────────────────────────────────────────
+async function verifyChain() {
+  const el = document.getElementById('verify-result');
+  const mi = document.getElementById('m-integrity');
+  const ml = document.getElementById('m-integrity-label');
+  el.style.display = 'block';
+  el.textContent = 'Verifying...';
+  try {
+    const r = await fetch(API+'/coc/verify').then(x=>x.json());
+    el.textContent = r.report || (r.verified ? 'CHAIN INTACT' : 'COMPROMISED');
+    el.style.color = r.verified ? '#10B981' : '#EF4444';
+    mi.textContent = r.verified ? '✓' : '✗';
+    mi.style.color = r.verified ? '#10B981' : '#EF4444';
+    ml.textContent = r.verified ? 'chain intact' : 'TAMPERED';
+  } catch(e) {
+    el.textContent = 'Verification failed: ' + e.message;
+  }
+}
+
+// ── seed demo ──────────────────────────────────────────────────────────────
+async function seedDemo() {
+  try {
+    await fetch(API+'/demo/seed', {method:'POST'});
+    // also seed some blockchain events
+    const events = [
+      ['AGENT_DEPLOYED',      {agent:'agent-dc01',  target:'DC-SERVER-01'}],
+      ['AGENT_DEPLOYED',      {agent:'agent-ws01',  target:'WORKSTATION-FINANCE'}],
+      ['AGENT_DEPLOYED',      {agent:'agent-srv02', target:'FILE-SERVER-02'}],
+      ['TASK_DISPATCHED',     {cmd:'proc_list',  agent:'agent-dc01'}],
+      ['EVIDENCE_COLLECTED',  {agent:'agent-dc01',  cmd:'proc_list', count:87}],
+      ['ANOMALY_DETECTED',    {agent:'agent-dc01',  threat:'mimikatz.exe detected'}],
+      ['EVIDENCE_COLLECTED',  {agent:'agent-ws01',  cmd:'net_state',  connections:12}],
+      ['EVIDENCE_COLLECTED',  {agent:'agent-srv02', cmd:'fs_analysis', files:4231}],
+    ];
+    for (const [ev, data] of events) {
+      await fetch(`${API}/coc/event?event_type=${ev}`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      }).catch(()=>{});
+    }
+    await refreshStatus();
+    setTimeout(() => verifyChain(), 500);
+  } catch(e) { console.error('seed failed:', e); }
+}
+</script>
+</body>
+</html>    

@@ -49,7 +49,7 @@ from fastapi              import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses    import StreamingResponse, JSONResponse
 from pydantic             import BaseModel
-
+from fastapi.responses    import HTMLResponse
 # ── JOCKY internal imports ────────────────────────────────────────────────────
 from management_interface.agent_controller import AgentController, AgentState
 from hash_chain import HashChain
@@ -89,7 +89,7 @@ _sse_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
 @app.on_event("startup")
 async def on_startup() -> None:
     # wire the controller's result callback -> integrity chain + SSE push
-    controller.set_result_callback(_on_agent_result)
+    controller.set_result_callback(_on_agent_result_with_blockchain)
     controller.start()
     log.info("[dashboard] started -- controller running")
 
@@ -170,15 +170,10 @@ class BroadcastRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 # ── / health ──────────────────────────────────────────────────────────────────
-@app.get("/", tags=["meta"])
-def root() -> dict:
-    return {
-        "framework": "JOCKY",
-        "version":   "1.0.0",
-        "phase":     "17 -- dashboard operational",
-        "status":    "online",
-        "timestamp": time.time(),
-    }
+@app.get("/", response_class=HTMLResponse, tags=["meta"])
+def root():
+    html = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(content=html)
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:
@@ -354,7 +349,83 @@ def verify_agent_chain(agent_id: str) -> dict:
         "report":   report,
     }
 
+# ── add to api.py: blockchain chain of custody ────────────────────────────────
 
+import sys as _sys2, pathlib as _pl2
+_sys2.path.insert(0, str(_pl2.Path(__file__).resolve().parent.parent.parent / "integrity"))
+from blockchain import ForensicBlockchain
+
+# global blockchain per case
+_blockchains: Dict[str, ForensicBlockchain] = {}
+_DEFAULT_CASE = "NTRO-2025-001"
+_DEFAULT_INV  = "INV-ALPHA"
+
+
+def _get_blockchain(case_id: str = _DEFAULT_CASE) -> ForensicBlockchain:
+    if case_id not in _blockchains:
+        _blockchains[case_id] = ForensicBlockchain(
+            case_id      = case_id,
+            investigator = _DEFAULT_INV,
+            chain_file   = str(_evidence_dir / f"blockchain_{case_id}.json"),
+            key_file     = str(_evidence_dir / f"inv_key_{case_id}.pem"),
+        )
+    return _blockchains[case_id]
+
+
+# wire blockchain into result callback (call this from on_startup)
+def _on_agent_result_with_blockchain(agent_id: str, result: dict) -> None:
+    _on_agent_result(agent_id, result)   # existing hash-chain
+    try:
+        bc = _get_blockchain()
+        bc.add_event("EVIDENCE_COLLECTED", {
+            "agent_id": agent_id,
+            "cmd_type": result.get("cmd_type"),
+            "task_id":  result.get("task_id"),
+            "bytes":    len(str(result.get("data", ""))),
+        })
+    except Exception as e:
+        log.warning(f"[blockchain] add_event failed: {e}")
+
+
+@app.get("/coc/summary", tags=["chain-of-custody"])
+def coc_summary(case_id: str = _DEFAULT_CASE) -> dict:
+    """Return blockchain summary for a case."""
+    return _get_blockchain(case_id).summary()
+
+
+@app.get("/coc/blocks", tags=["chain-of-custody"])
+def coc_blocks(case_id: str = _DEFAULT_CASE,
+               event_type: Optional[str] = None) -> dict:
+    """Return all blocks, optionally filtered by event type."""
+    bc = _get_blockchain(case_id)
+    blocks = bc.get_events(event_type)
+    return {"case_id": case_id, "count": len(blocks),
+            "blocks": [b.to_dict() for b in blocks]}
+
+
+@app.get("/coc/blocks/{index}", tags=["chain-of-custody"])
+def coc_block(index: int, case_id: str = _DEFAULT_CASE) -> dict:
+    """Return a specific block by index."""
+    block = _get_blockchain(case_id).get_block(index)
+    if not block:
+        raise HTTPException(status_code=404, detail=f"block {index} not found")
+    return block.to_dict()
+
+
+@app.get("/coc/verify", tags=["chain-of-custody"])
+def coc_verify(case_id: str = _DEFAULT_CASE) -> dict:
+    """Verify the full blockchain integrity."""
+    ok, report = _get_blockchain(case_id).verify()
+    return {"case_id": case_id, "verified": ok, "report": report}
+
+
+@app.post("/coc/event", tags=["chain-of-custody"])
+def coc_add_event(event_type: str,
+                  data: Dict[str, Any] = {},
+                  case_id: str = _DEFAULT_CASE) -> dict:
+    """Manually append an event to the blockchain."""
+    block = _get_blockchain(case_id).add_event(event_type, data)
+    return {"ok": True, "block_index": block.index, "hash": block.hash}
 # ── /stream (SSE live feed) ───────────────────────────────────────────────────
 @app.get("/stream", tags=["live"])
 async def event_stream() -> StreamingResponse:
