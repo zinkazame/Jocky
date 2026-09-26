@@ -1,3 +1,113 @@
-.venv/
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Compiled binaries (don't commit .exe/.sys to repo) ───────────────────────
+*.exe
+*.sys
+*.obj
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# ── LLVM IR build artifacts ───────────────────────────────────────────────────
+*.ll
+*.bc
+
+# ── Generated evidence (never commit real forensic data) ─────────────────────
+evidence/
+*.pem
+*.key
+
+# ── PyInstaller ───────────────────────────────────────────────────────────────
+dist/
+build/
+*.spec
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs + temp ───────────────────────────────────────────────────────────────
+*.log
+*.tmp
+fix_*.py
+project_tree.txt
+
+# ── Lark cache ────────────────────────────────────────────────────────────────
+*.lark.cache
+
+# ── Local config ─────────────────────────────────────────────────────────────
+local_config.py
+.env
+
+# ── Drivers (never commit signed vulnerable drivers) ─────────────────────────
+RTCore64*.sys
+WinRing0*.sys
+AsrDrv*.sys
+DBUtil*.sys
+BS_LED*.sys
+*.bin
+
+# ── Test output files ─────────────────────────────────────────────────────────
+test_*.exe
+*_probe.exe
+*_fuzz.exe
+*_sweep.exe
+asr_sweep.exe
+rtcore64_layout_fuzz.exe
+winring0_pa_probe.exe
+bsled_probe.exe
+jocky_byovd.exe
+
+# ── Misc generated ────────────────────────────────────────────────────────────
+modules_self.json
+vad_self.json
+procs.json
+ads.json
+connections.json
+dns_cache.json
+mft_sample.json
+persistence.json
+phys_ranges.json
+prefetch.json
+services.json
+suspicious_self.json
+typed_urls.json
+reflective_loader.obj
+syscall_stubs.obj
+ransomware_triage.ll
+clean.ll
+obfuscated.ll
+LibreHardwareMonitor.zip
+MSIAfterburnerSetup*.exe
+ohm.zip
+lhm_extracted/
+ohm_extracted/
+signed.sys
+parse_minidump.ps1
+check_exports.c
+check_exports.exe
+cs2cheat.c
