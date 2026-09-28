@@ -1,330 +1,854 @@
 """
-agent/collector.py -- JOCKY Real Forensic Collectors
-Pure Windows forensic evidence collection using stdlib only.
-Every function returns a serializable dict ready to encrypt + POST.
-"""
+agent/collector.py -- JOCKY Forensic Collectors
+=================================================
+8 real forensic collectors for Windows targets.
+Supports 4 investigation scenarios.
 
+Scenarios:
+  baseline    -- all collectors, no specific focus
+  ransomware  -- prefetch, event_log, reg_persistence, proc_list, net_state
+  insider     -- browser_hist, usb_history, event_log, reg_persistence, scheduled_tasks
+  intrusion   -- net_state, proc_list, event_log, scheduled_tasks, reg_persistence
+
+Usage:
+  from collector import collect_all
+  bundle = collect_all(scenario="ransomware")
+  bundle = collect_all(which=["proc_list","net_state"])
+"""
 from __future__ import annotations
-import ctypes, hashlib, json, os, re, sqlite3, struct, subprocess
-import winreg, time, shutil, tempfile, logging
+
+import hashlib
+import json
+import logging
+import os
+import platform
+import re
+import socket
+import struct
+import subprocess
+import sys
+import time
+import winreg
 from datetime import datetime, timezone
 from pathlib  import Path
 from typing   import Any, Dict, List, Optional
 
 log = logging.getLogger("jocky.collector")
 
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# ── Scenario definitions ─────────────────────────────────────────────────────
+
+SCENARIOS: Dict[str, List[str]] = {
+    "baseline": [
+        "proc_list", "net_state", "reg_persistence",
+        "event_log", "usb_history", "prefetch",
+        "browser_hist", "scheduled_tasks",
+    ],
+    "ransomware": [
+        # Focus: execution traces, lateral movement, encrypted file indicators
+        "proc_list",        # suspicious processes, injected memory
+        "prefetch",         # execution history (mimikatz, psexec, vssadmin)
+        "event_log",        # 4688 process creates, 4698 sched task, VSS deletion
+        "reg_persistence",  # dropped autorun keys
+        "net_state",        # C2 connections, SMB spread
+        "usb_history",      # initial access vector
+    ],
+    "insider": [
+        # Focus: data staging, exfiltration paths, access patterns
+        "browser_hist",     # cloud upload sites, webmail, file sharing
+        "usb_history",      # data copied to USB
+        "event_log",        # 4663 object access, 4624 logons outside hours
+        "reg_persistence",  # tools installed for exfiltration
+        "scheduled_tasks",  # automated exfiltration jobs
+        "proc_list",        # cloud sync tools, compression utilities
+    ],
+    "intrusion": [
+        # Focus: persistence, privilege escalation, lateral movement
+        "net_state",        # active C2 connections, unusual listeners
+        "proc_list",        # reverse shells, injected processes
+        "event_log",        # 4624/4625 logons, 7045 service install, 4698 sched task
+        "scheduled_tasks",  # persistence via scheduled tasks
+        "reg_persistence",  # registry persistence keys
+        "prefetch",         # attacker tooling execution traces
+    ],
+}
+
+# ── Threat indicators per scenario ───────────────────────────────────────────
+
+RANSOMWARE_PROC_IOC = [
+    "mimikatz", "psexec", "wce", "fgdump", "procdump", "vssadmin",
+    "bcdedit", "wbadmin", "cipher", "sdelete", "7zip", "7z.exe",
+    "rar.exe", "wscript", "cscript", "mshta", "certutil",
+]
+RANSOMWARE_NET_IOC_PORTS = {445, 139, 3389, 22, 4444, 8080, 1337}
+
+INSIDER_BROWSER_IOC_DOMAINS = [
+    "mega.nz", "wetransfer.com", "dropbox.com", "anonfile",
+    "file.io", "gofile.io", "transfer.sh", "ufile.io",
+    "sendspace.com", "mediafire.com", "pastebin.com",
+]
+INSIDER_PROC_IOC = [
+    "rclone", "s3cmd", "aws", "gdrive", "nextcloud",
+    "7z.exe", "winrar", "winzip", "robocopy",
+]
+
+INTRUSION_PROC_IOC = [
+    "nc.exe", "ncat", "netcat", "nmap", "masscan",
+    "cobalt", "beacon", "meterpreter", "empire",
+    "powersploit", "invoke-", "psexec", "wmiexec",
+    "dcsync", "bloodhound", "sharphound",
+]
+INTRUSION_NET_LISTEN_SUSPICIOUS = {4444, 4445, 8888, 31337, 1337, 9001, 9002}
+
+
+# ── Helper utilities ──────────────────────────────────────────────────────────
+
+def _run(cmd: str, timeout: int = 15) -> str:
+    try:
+        r = subprocess.run(
+            cmd, shell=True, capture_output=True,
+            text=True, timeout=timeout,
+            encoding="utf-8", errors="replace"
+        )
+        return r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "[TIMEOUT]"
+    except Exception as e:
+        return f"[ERROR: {e}]"
+
 
 def _sha256_file(path: str) -> str:
     try:
         h = hashlib.sha256()
         with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""): h.update(chunk)
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
         return h.hexdigest()
-    except Exception: return ""
+    except Exception:
+        return ""
 
-def _run(cmd: list) -> str:
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=15, creationflags=0x08000000)
-        return r.stdout.strip()
-    except Exception: return ""
 
-def _reg_read_key(hive, path: str) -> Dict[str, Any]:
-    result = {}
+def _ts() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 1: Process List
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _proc_list(scenario: str = "baseline") -> dict:
+    """
+    Enumerate all running processes.
+    - PID, PPID, name, path, command line
+    - SHA-256 of executable
+    - Flags: no disk image (possible injection/hollow), suspicious name
+    """
+    log.info("[collector] proc_list starting...")
+
+    ioc_names = {
+        "ransomware": RANSOMWARE_PROC_IOC,
+        "insider":    INSIDER_PROC_IOC,
+        "intrusion":  INTRUSION_PROC_IOC,
+    }.get(scenario, RANSOMWARE_PROC_IOC + INSIDER_PROC_IOC + INTRUSION_PROC_IOC)
+
     try:
-        key = winreg.OpenKey(hive, path, 0, winreg.KEY_READ)
-        i = 0
-        while True:
+        import psutil
+        procs = []
+        suspicious = []
+        for p in psutil.process_iter(
+            ["pid","ppid","name","exe","cmdline","status","create_time","username"]
+        ):
             try:
-                name, data, _ = winreg.EnumValue(key, i)
-                result[name] = str(data); i += 1
-            except OSError: break
-        winreg.CloseKey(key)
-    except Exception: pass
-    return result
+                info = p.info
+                exe  = info.get("exe") or ""
+                name = (info.get("name") or "").lower()
+                cmd  = " ".join(info.get("cmdline") or [])
 
-# ── 1. Process List ──────────────────────────────────────────────────────────
-def proc_list() -> Dict[str, Any]:
-    procs = []; suspicious = []
-    try:
-        out = _run(["tasklist", "/FO", "CSV", "/V"])
-        for line in out.strip().splitlines()[1:]:
-            try:
-                parts = [p.strip('"') for p in line.split('","')]
-                if len(parts) < 5: continue
-                procs.append({"pid": int(parts[1]) if parts[1].isdigit() else 0,
-                               "name": parts[0], "mem_kb": parts[3].replace(",","").replace(" K",""),
-                               "username": parts[5] if len(parts)>5 else "", "path":"","sha256":"","flags":[]})
-            except Exception: continue
+                sha  = _sha256_file(exe) if exe and os.path.exists(exe) else ""
+                no_disk = bool(exe and not os.path.exists(exe))
 
-        wmic_out = _run(["wmic","process","get","ProcessId,ExecutablePath,CommandLine","/FORMAT:CSV"])
-        path_map: Dict[int, dict] = {}
-        for line in wmic_out.splitlines():
-            cols = line.split(",")
-            if len(cols) >= 4:
-                try: path_map[int(cols[2])] = {"cmdline":cols[1].strip(),"path":cols[3].strip()}
-                except Exception: pass
+                flags = []
+                for ioc in ioc_names:
+                    if ioc.lower() in name or ioc.lower() in cmd.lower():
+                        flags.append(f"IOC_NAME:{ioc}")
+                if no_disk:
+                    flags.append("NO_DISK_IMAGE")
+                if not exe and info["pid"] > 4:
+                    flags.append("NO_EXE_PATH")
 
-        suspicious_paths = ["\\temp\\","\\tmp\\","\\appdata\\local\\temp\\",
-                             "\\appdata\\roaming\\","\\users\\public\\","\\programdata\\"]
-        for entry in procs:
-            info = path_map.get(entry["pid"], {})
-            entry["path"] = info.get("path",""); entry["cmdline"] = info.get("cmdline","")
-            if entry["path"]:
-                entry["sha256"] = _sha256_file(entry["path"])
-                p_lower = entry["path"].lower()
-                for sp in suspicious_paths:
-                    if sp in p_lower: entry["flags"].append("SUSPICIOUS_PATH"); break
-            else:
-                entry["flags"].append("NO_DISK_IMAGE")
-            if "NO_DISK_IMAGE" in entry["flags"] and entry["pid"] > 4:
-                suspicious.append({"pid":entry["pid"],"name":entry["name"],"reason":"no executable path"})
-    except Exception as e: log.warning(f"proc_list: {e}")
-    return {"timestamp":_utcnow(),"count":len(procs),"suspicious":suspicious,"processes":procs}
+                entry = {
+                    "pid":     info["pid"],
+                    "ppid":    info.get("ppid"),
+                    "name":    info.get("name"),
+                    "exe":     exe,
+                    "sha256":  sha,
+                    "cmd":     cmd[:256],
+                    "user":    info.get("username",""),
+                    "status":  info.get("status",""),
+                    "flags":   flags,
+                }
+                procs.append(entry)
+                if flags:
+                    suspicious.append(entry)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
 
-# ── 2. Network State ─────────────────────────────────────────────────────────
-def net_state() -> Dict[str, Any]:
-    connections = []; external_ips = []; suspicious_conns = []
-    try:
-        out = _run(["netstat","-ano"])
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) < 4 or parts[0] not in ("TCP","UDP"): continue
-            proto = parts[0]; local = parts[1]; remote = parts[2] if len(parts)>2 else ""
-            state = parts[3] if proto=="TCP" and len(parts)>3 else ""
-            pid   = parts[-1] if parts[-1].isdigit() else ""
-            conn  = {"proto":proto,"local":local,"remote":remote,"state":state,
-                     "pid":int(pid) if pid else 0,"process":"","flags":[]}
-            if remote and remote not in ("*:*","0.0.0.0:0"):
-                ip = remote.rsplit(":",1)[0].strip("[]")
-                if ip and not ip.startswith(("127.","::1","0.0.0.0","10.","192.168.","172.")):
-                    external_ips.append(ip); conn["flags"].append("EXTERNAL_IP")
-                    if ip.startswith(("185.220.","195.123.","5.188.")):
-                        conn["flags"].append("THREAT_IP")
-                        suspicious_conns.append({"remote":remote,"pid":conn["pid"],"reason":"known bad range"})
-            connections.append(conn)
+        return {
+            "count":     len(procs),
+            "suspicious_count": len(suspicious),
+            "suspicious": suspicious,
+            "processes": procs,
+        }
 
-        pid_names: Dict[int,str] = {}
-        for line in _run(["wmic","process","get","ProcessId,Name","/FORMAT:CSV"]).splitlines():
-            cols = line.split(",")
-            if len(cols)>=3:
-                try: pid_names[int(cols[2])] = cols[1].strip()
-                except Exception: pass
-        for conn in connections:
-            conn["process"] = pid_names.get(conn["pid"],"")
-    except Exception as e: log.warning(f"net_state: {e}")
-    return {"timestamp":_utcnow(),"total":len(connections),
-            "external_ips":list(set(external_ips)),"suspicious":suspicious_conns,"connections":connections}
+    except ImportError:
+        # fallback: tasklist
+        raw = _run("tasklist /FO CSV /NH /V")
+        procs = []
+        for line in raw.splitlines():
+            parts = [p.strip('"') for p in line.split('","')]
+            if len(parts) >= 2:
+                name = parts[0].lower()
+                flags = [f"IOC_NAME:{ioc}" for ioc in ioc_names if ioc in name]
+                procs.append({"name": parts[0], "pid": parts[1], "flags": flags})
+        suspicious = [p for p in procs if p["flags"]]
+        return {"count": len(procs), "suspicious_count": len(suspicious),
+                "suspicious": suspicious, "processes": procs}
 
-# ── 3. Registry Persistence ──────────────────────────────────────────────────
-def reg_persistence() -> Dict[str, Any]:
-    results: Dict[str,Any] = {"timestamp":_utcnow(),"keys":{},"suspicious":[]}
-    keys = [
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 2: Network State
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _net_state(scenario: str = "baseline") -> dict:
+    """
+    All TCP/UDP connections mapped to process names.
+    Flags: external IPs, suspicious ports, listening on unusual ports.
+    """
+    log.info("[collector] net_state starting...")
+
+    suspicious_ports = {
+        "ransomware": RANSOMWARE_NET_IOC_PORTS,
+        "intrusion":  INTRUSION_NET_LISTEN_SUSPICIOUS,
+    }.get(scenario, RANSOMWARE_NET_IOC_PORTS | INTRUSION_NET_LISTEN_SUSPICIOUS)
+
+    raw = _run("netstat -ano", timeout=20)
+    connections = []
+    suspicious  = []
+
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        proto = parts[0]
+        if proto not in ("TCP", "UDP"):
+            continue
+
+        local  = parts[1]
+        remote = parts[2] if proto == "TCP" else "*:*"
+        state  = parts[3] if proto == "TCP" and len(parts) > 3 else ""
+        pid    = parts[-1]
+
+        local_port  = local.rsplit(":", 1)[-1]
+        remote_ip   = remote.rsplit(":", 1)[0].strip("[]")
+        remote_port_str = remote.rsplit(":", 1)[-1]
+
+        flags = []
+        # external IP check
+        if remote_ip not in ("0.0.0.0", "127.0.0.1", "::", "*", "[::]", "") \
+                and not remote_ip.startswith("192.168.") \
+                and not remote_ip.startswith("10.") \
+                and not remote_ip.startswith("172."):
+            flags.append(f"EXTERNAL_IP:{remote_ip}")
+
+        # suspicious port check
+        try:
+            rp = int(remote_port_str)
+            if rp in suspicious_ports:
+                flags.append(f"SUSPICIOUS_PORT:{rp}")
+        except ValueError:
+            pass
+
+        entry = {
+            "proto":   proto,
+            "local":   local,
+            "remote":  remote,
+            "state":   state,
+            "pid":     pid,
+            "flags":   flags,
+        }
+        connections.append(entry)
+        if flags:
+            suspicious.append(entry)
+
+    # DNS cache (useful for intrusion/insider)
+    dns_cache = []
+    if scenario in ("intrusion", "insider", "baseline"):
+        dns_raw = _run("ipconfig /displaydns", timeout=10)
+        for line in dns_raw.splitlines():
+            if "Record Name" in line:
+                name = line.split(":", 1)[-1].strip()
+                dns_cache.append(name)
+
+    return {
+        "total":       len(connections),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "connections": connections,
+        "dns_cache":   dns_cache[:50],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 3: Registry Persistence
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _reg_persistence(scenario: str = "baseline") -> dict:
+    """
+    All autorun registry keys across HKLM and HKCU.
+    Flags: shell interpreters, obfuscation markers, temp paths.
+    """
+    log.info("[collector] reg_persistence starting...")
+
+    AUTORUN_KEYS = [
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"),
         (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
         (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"),
+        (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes\*\shellex\ContextMenuHandlers"),
     ]
-    suspicious_values = ["powershell","cmd.exe","wscript","cscript","mshta",
-                         "rundll32","regsvr32","bitsadmin","certutil",".bat",
-                         ".vbs",".ps1","temp","tmp","appdata","base64"]
-    for hive, path in keys:
-        values = _reg_read_key(hive, path)
-        label = ("HKLM" if hive==winreg.HKEY_LOCAL_MACHINE else "HKCU") + "\\" + path
-        results["keys"][label] = values
-        for name, data in values.items():
-            for sv in suspicious_values:
-                if sv in str(data).lower():
-                    results["suspicious"].append({"key":label,"value":name,"data":data,"reason":f"contains '{sv}'"})
+
+    SUSPICIOUS_PATTERNS = [
+        "powershell", "cmd.exe", "wscript", "cscript", "mshta", "rundll32",
+        "regsvr32", "certutil", "bitsadmin", "msiexec", "installutil",
+        "base64", "iex ", "invoke-expression", "downloadstring",
+        "\\temp\\", "\\tmp\\", "\\appdata\\roaming\\", "%temp%",
+        "bypass", "hidden", "encoded", "-enc ", "-nop ",
+        # insider-specific
+        "rclone", "gdrive", "s3cmd", "mega",
+    ]
+    # ransomware-specific additions
+    if scenario == "ransomware":
+        SUSPICIOUS_PATTERNS += ["vssadmin", "wbadmin", "bcdedit", "cipher"]
+
+    entries   = []
+    suspicious = []
+
+    for hive, key_path in AUTORUN_KEYS:
+        try:
+            hive_name = {
+                winreg.HKEY_LOCAL_MACHINE: "HKLM",
+                winreg.HKEY_CURRENT_USER:  "HKCU",
+            }.get(hive, "???")
+            key = winreg.OpenKey(hive, key_path, 0, winreg.KEY_READ)
+            i   = 0
+            while True:
+                try:
+                    name, data, dtype = winreg.EnumValue(key, i)
+                    data_str = str(data).lower()
+                    flags = [
+                        p for p in SUSPICIOUS_PATTERNS if p in data_str
+                    ]
+                    entry = {
+                        "hive":   hive_name,
+                        "key":    key_path,
+                        "name":   name,
+                        "data":   str(data)[:512],
+                        "type":   dtype,
+                        "flags":  flags,
+                    }
+                    entries.append(entry)
+                    if flags:
+                        suspicious.append(entry)
+                    i += 1
+                except OSError:
                     break
-    return results
+            winreg.CloseKey(key)
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
 
-# ── 4. Event Log ─────────────────────────────────────────────────────────────
-def event_log(max_events: int = 100) -> Dict[str, Any]:
-    events = []; errors = []
-    try:
-        import win32evtlog, win32evtlogutil
-        target = {"Security":{4624,4625,4688,4720,4726,4732,4776},"System":{7045,7036,7040}}
-        for log_name, eids in target.items():
+    return {
+        "total":       len(entries),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "entries":     entries,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 4: Windows Event Log
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _event_log(scenario: str = "baseline") -> dict:
+    """
+    Pull Security and System event logs.
+    Scenario-specific event ID focus.
+    """
+    log.info("[collector] event_log starting...")
+
+    # scenario → which event IDs to focus on
+    SCENARIO_EVENT_IDS = {
+        "ransomware": {
+            "Security": [4688, 4689, 4624, 4625, 4698, 4702, 4663],
+            "System":   [7045, 7036, 7040],
+        },
+        "insider": {
+            "Security": [4663, 4624, 4625, 4634, 4648, 4698, 4702, 5140, 5145],
+            "System":   [7045],
+        },
+        "intrusion": {
+            "Security": [4624, 4625, 4648, 4672, 4698, 4720, 4726, 4732, 4756],
+            "System":   [7045, 7036],
+        },
+        "baseline": {
+            "Security": [4624, 4625, 4688, 4698, 4702, 4663, 4720, 4726, 4648],
+            "System":   [7045, 7036],
+        },
+    }
+
+    target_ids = SCENARIO_EVENT_IDS.get(scenario, SCENARIO_EVENT_IDS["baseline"])
+    events     = []
+    suspicious = []
+
+    for log_name, event_ids in target_ids.items():
+        for eid in event_ids:
             try:
-                hand = win32evtlog.OpenEventLog(None, log_name)
-                flags = win32evtlog.EVENTLOG_BACKWARDS_READ|win32evtlog.EVENTLOG_SEQUENTIAL_READ
-                count = 0
-                while count < max_events:
-                    records = win32evtlog.ReadEventLog(hand, flags, 0)
-                    if not records: break
-                    for r in records:
-                        eid = r.EventID & 0xFFFF
-                        if eids and eid not in eids: continue
-                        try: msg = win32evtlogutil.SafeFormatMessage(r, log_name)
-                        except Exception: msg = ""
-                        events.append({"log":log_name,"event_id":eid,
-                                        "time":r.TimeGenerated.Format(),
-                                        "source":r.SourceName,"message":msg[:300]})
-                        count += 1
-                        if count >= max_events: break
-                win32evtlog.CloseEventLog(hand)
-            except Exception as e: errors.append(f"{log_name}: {e}")
-    except ImportError:
-        for log_name in ["Security","System"]:
-            out = _run(["wevtutil","qe",log_name,"/c:50","/rd:true","/f:text"])
-            for block in out.split("Event["):
-                if not block.strip(): continue
-                eid_m = re.search(r"EventID:\s*(\d+)", block)
-                time_m = re.search(r"Date:\s*([\d/: APM]+)", block)
-                events.append({"log":log_name,"event_id":int(eid_m.group(1)) if eid_m else 0,
-                                "time":time_m.group(1) if time_m else "","message":block[:200],"source":""})
-    suspicious_eids = {4625:"failed logon",4688:"process created",7045:"service installed",4720:"user created"}
-    return {"timestamp":_utcnow(),"count":len(events),
-            "suspicious":[{**e,"reason":suspicious_eids[e["event_id"]]} for e in events if e["event_id"] in suspicious_eids][:50],
-            "events":events[:max_events],"errors":errors}
+                # use wevtutil for reliable structured output
+                raw = _run(
+                    f'wevtutil qe {log_name} '
+                    f'/q:"*[System[EventID={eid}]]" '
+                    f'/c:20 /rd:true /f:text',
+                    timeout=15
+                )
+                if not raw or "[TIMEOUT]" in raw or "[ERROR" in raw:
+                    continue
 
-# ── 5. USB History ───────────────────────────────────────────────────────────
-def usb_history() -> Dict[str, Any]:
+                # parse text output blocks
+                blocks = raw.split("Event[")
+                for block in blocks[1:]:  # skip first empty
+                    ev = {
+                        "log":      log_name,
+                        "event_id": eid,
+                        "raw":      block[:500],
+                        "flags":    [],
+                    }
+
+                    # extract timestamp
+                    ts_m = re.search(r"Date:\s+(.+)", block)
+                    if ts_m:
+                        ev["timestamp"] = ts_m.group(1).strip()
+
+                    # scenario-specific flags
+                    block_lower = block.lower()
+                    if eid == 4688:
+                        # process create — check for suspicious new processes
+                        for ioc in RANSOMWARE_PROC_IOC + INTRUSION_PROC_IOC:
+                            if ioc in block_lower:
+                                ev["flags"].append(f"SUSPICIOUS_PROC:{ioc}")
+                    if eid == 4625:
+                        ev["flags"].append("FAILED_LOGON")
+                    if eid == 7045:
+                        ev["flags"].append("NEW_SERVICE_INSTALLED")
+                    if eid == 4698:
+                        ev["flags"].append("SCHEDULED_TASK_CREATED")
+                    if eid == 4720:
+                        ev["flags"].append("USER_ACCOUNT_CREATED")
+                    if eid == 5140 and ("admin$" in block_lower or "c$" in block_lower):
+                        ev["flags"].append("ADMIN_SHARE_ACCESS")
+
+                    events.append(ev)
+                    if ev["flags"]:
+                        suspicious.append(ev)
+
+            except Exception as e:
+                log.debug(f"event_log eid={eid}: {e}")
+
+    return {
+        "total":       len(events),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "events":      events[:200],   # cap at 200
+        "scenario_focus": list(target_ids.keys()),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 5: USB History
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _usb_history(scenario: str = "baseline") -> dict:
+    """
+    All USB storage devices ever connected (USBSTOR registry).
+    Includes device names, serial numbers, connection timestamps.
+    """
+    log.info("[collector] usb_history starting...")
+
     devices = []
     try:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                              r"SYSTEM\CurrentControlSet\Enum\USBSTOR",0,winreg.KEY_READ)
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Enum\USBSTOR",
+            0, winreg.KEY_READ
+        )
         i = 0
         while True:
             try:
-                dc = winreg.EnumKey(key, i); i += 1
-                ck = winreg.OpenKey(key, dc, 0, winreg.KEY_READ)
+                dev_type = winreg.EnumKey(key, i)
+                dev_key  = winreg.OpenKey(key, dev_type)
                 j = 0
                 while True:
                     try:
-                        serial = winreg.EnumKey(ck, j); j += 1
-                        sk = winreg.OpenKey(ck, serial, 0, winreg.KEY_READ)
-                        try: friendly,_ = winreg.QueryValueEx(sk, "FriendlyName")
-                        except Exception: friendly = ""
-                        devices.append({"device_class":dc,"serial":serial,"friendly":friendly})
-                        winreg.CloseKey(sk)
-                    except OSError: break
-                winreg.CloseKey(ck)
-            except OSError: break
+                        serial   = winreg.EnumKey(dev_key, j)
+                        inst_key = winreg.OpenKey(dev_key, serial)
+                        try:
+                            friendly, _ = winreg.QueryValueEx(inst_key, "FriendlyName")
+                        except FileNotFoundError:
+                            friendly = dev_type
+                        try:
+                            mfg, _ = winreg.QueryValueEx(inst_key, "Mfg")
+                        except FileNotFoundError:
+                            mfg = ""
+                        devices.append({
+                            "device_type": dev_type,
+                            "serial":      serial,
+                            "friendly_name": friendly,
+                            "manufacturer": mfg,
+                        })
+                        winreg.CloseKey(inst_key)
+                        j += 1
+                    except OSError:
+                        break
+                winreg.CloseKey(dev_key)
+                i += 1
+            except OSError:
+                break
         winreg.CloseKey(key)
-    except Exception as e: log.warning(f"usb_history: {e}")
-    return {"timestamp":_utcnow(),"count":len(devices),"devices":devices}
+    except (FileNotFoundError, PermissionError):
+        pass
 
-# ── 6. Prefetch ──────────────────────────────────────────────────────────────
-def prefetch() -> Dict[str, Any]:
-    pf_dir = Path(r"C:\Windows\Prefetch"); entries = []
-    if not pf_dir.exists():
-        return {"timestamp":_utcnow(),"count":0,"note":"Prefetch directory not found","entries":[]}
-    for pf in sorted(pf_dir.glob("*.pf"))[:200]:
-        try:
-            data = pf.read_bytes()
-            if len(data) < 84: continue
-            version = struct.unpack_from("<I",data,0)[0]
-            try: exe_name = data[16:76].decode("utf-16-le").rstrip("\x00")
-            except Exception: exe_name = pf.stem
-            run_count = 0; last_run = ""
-            try:
-                if version >= 30: run_count = struct.unpack_from("<I",data,208)[0]; ft = struct.unpack_from("<Q",data,128)[0]
-                else:             run_count = struct.unpack_from("<I",data,160)[0]; ft = struct.unpack_from("<Q",data,120)[0]
-                if ft>0:
-                    epoch = (ft-116444736000000000)//10000000
-                    last_run = datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except Exception: pass
-            entries.append({"name":exe_name,"file":pf.name,"run_count":run_count,
-                             "last_run":last_run,"size":pf.stat().st_size})
-        except Exception: continue
-    entries.sort(key=lambda x: x["last_run"] or "",reverse=True)
-    bad = ["mimikatz","psexec","wce","fgdump","pwdump","procdump","lazagne","nc.exe"]
-    suspicious = [e for e in entries if any(s in e["name"].lower() for s in bad)]
-    return {"timestamp":_utcnow(),"count":len(entries),"suspicious":suspicious,"entries":entries[:100]}
-
-# ── 7. Browser History ───────────────────────────────────────────────────────
-def browser_hist(max_urls: int = 200) -> Dict[str, Any]:
-    results = {"timestamp":_utcnow(),"urls":[],"downloads":[],"errors":[]}
-    profiles = {
-        "Chrome": Path(os.environ.get("LOCALAPPDATA","")) / "Google"/"Chrome"/"User Data"/"Default"/"History",
-        "Edge":   Path(os.environ.get("LOCALAPPDATA","")) / "Microsoft"/"Edge"/"User Data"/"Default"/"History",
+    return {
+        "count":   len(devices),
+        "devices": devices,
+        "note":    "All USB storage devices ever connected to this machine",
     }
-    for browser, db_path in profiles.items():
-        if not db_path.exists(): continue
-        try:
-            tmp_path = tempfile.mktemp(suffix=".db"); shutil.copy2(db_path, tmp_path)
-            conn = sqlite3.connect(tmp_path); cur = conn.cursor()
-            try:
-                cur.execute("SELECT u.url,u.title,u.visit_count,datetime(v.visit_time/1000000-11644473600,'unixepoch') FROM urls u JOIN visits v ON u.id=v.url ORDER BY v.visit_time DESC LIMIT ?",(max_urls,))
-                for row in cur.fetchall():
-                    results["urls"].append({"browser":browser,"url":row[0],"title":row[1],"visits":row[2],"last":row[3]})
-            except Exception as e: results["errors"].append(f"{browser} urls: {e}")
-            try:
-                cur.execute("SELECT target_path,tab_url,total_bytes,datetime(start_time/1000000-11644473600,'unixepoch'),danger_type FROM downloads ORDER BY start_time DESC LIMIT 50")
-                for row in cur.fetchall():
-                    results["downloads"].append({"browser":browser,"path":row[0],"source_url":row[1],"size":row[2],"time":row[3],"danger":row[4]})
-            except Exception as e: results["errors"].append(f"{browser} downloads: {e}")
-            conn.close(); os.unlink(tmp_path)
-        except Exception as e: results["errors"].append(f"{browser}: {e}")
-    results["url_count"]=len(results["urls"]); results["download_count"]=len(results["downloads"])
-    return results
 
-# ── 8. Scheduled Tasks ───────────────────────────────────────────────────────
-def scheduled_tasks() -> Dict[str, Any]:
-    tasks = []; suspicious = []
-    try:
-        out = _run(["schtasks","/query","/FO","CSV","/V"])
-        lines = out.strip().splitlines()
-        if len(lines) < 2: return {"timestamp":_utcnow(),"count":0,"tasks":[],"suspicious":[]}
-        headers = [h.strip('"') for h in lines[0].split('","')]
-        for line in lines[1:]:
-            if not line.strip(): continue
-            try:
-                cols = [c.strip('"') for c in line.split('","')]
-                task = dict(zip(headers, cols))
-                entry = {"name":task.get("TaskName",""),"status":task.get("Status",""),
-                         "run_as":task.get("Run As User",""),"action":task.get("Task To Run",""),
-                         "next":task.get("Next Run Time",""),"last":task.get("Last Run Time",""),
-                         "result":task.get("Last Result",""),"flags":[]}
-                al = entry["action"].lower()
-                for tok in ["powershell","cmd.exe","wscript","cscript","mshta","rundll32",
-                             "regsvr32","certutil","bitsadmin","\\temp\\","\\tmp\\"]:
-                    if tok in al: entry["flags"].append(f"ACTION:{tok}")
-                if "system" in entry["run_as"].lower(): entry["flags"].append("RUN_AS_SYSTEM")
-                if entry["flags"]: suspicious.append(entry)
-                tasks.append(entry)
-            except Exception: continue
-    except Exception as e: log.warning(f"scheduled_tasks: {e}")
-    return {"timestamp":_utcnow(),"count":len(tasks),"suspicious":suspicious,"tasks":tasks}
 
-# ── Master collector ─────────────────────────────────────────────────────────
-def collect_all(collectors=None) -> Dict[str, Any]:
-    AVAILABLE = {
-        "proc_list":       proc_list,
-        "net_state":       net_state,
-        "reg_persistence": reg_persistence,
-        "event_log":       event_log,
-        "usb_history":     usb_history,
-        "prefetch":        prefetch,
-        "browser_hist":    browser_hist,
-        "scheduled_tasks": scheduled_tasks,
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 6: Prefetch Analysis
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _prefetch(scenario: str = "baseline") -> dict:
+    """
+    Parse Windows Prefetch files to reconstruct execution history.
+    Flags executables matching known attacker tooling.
+    """
+    log.info("[collector] prefetch starting...")
+
+    PREFETCH_DIR = Path(r"C:\Windows\Prefetch")
+
+    # scenario-specific IOCs
+    PREFETCH_IOC = {
+        "ransomware": [
+            "MIMIKATZ", "PSEXEC", "WCE", "FGDUMP", "PROCDUMP",
+            "VSSADMIN", "WBADMIN", "BCDEDIT", "CIPHER", "SDELETE",
+            "7Z", "RAR", "CERTUTIL", "MSHTA", "CSCRIPT", "WSCRIPT",
+        ],
+        "insider": [
+            "RCLONE", "S3CMD", "GDRIVE", "MEGA", "7Z", "WINRAR",
+            "ROBOCOPY", "XCOPY", "CERTUTIL", "CURL", "WGET",
+        ],
+        "intrusion": [
+            "NC", "NCAT", "NMAP", "MASSCAN", "PSEXEC", "WMIEXEC",
+            "MIMIKATZ", "BLOODHOUND", "SHARPHOUND", "COBALTSTRIKE",
+            "METERPRETER", "POWERSPLOIT",
+        ],
+        "baseline": [
+            "MIMIKATZ", "PSEXEC", "WCE", "FGDUMP", "PROCDUMP",
+            "VSSADMIN", "WBADMIN", "NC", "NCAT", "RCLONE",
+            "CERTUTIL", "MSHTA", "CSCRIPT", "WSCRIPT", "REGSVR32",
+        ],
     }
-    to_run = collectors or list(AVAILABLE.keys())
-    bundle: Dict[str,Any] = {
-        "collected_at": _utcnow(),
-        "hostname":     os.environ.get("COMPUTERNAME","unknown"),
-        "username":     os.environ.get("USERNAME","unknown"),
-        "collectors":   {}, "errors": {},
-    }
-    for name in to_run:
-        fn = AVAILABLE.get(name)
-        if not fn: bundle["errors"][name]="unknown collector"; continue
+    ioc_list = PREFETCH_IOC.get(scenario, PREFETCH_IOC["baseline"])
+
+    entries    = []
+    suspicious = []
+
+    if not PREFETCH_DIR.exists():
+        return {"count": 0, "entries": [],
+                "note": "Prefetch directory not found or access denied"}
+
+    for pf_file in sorted(PREFETCH_DIR.glob("*.pf"),
+                          key=lambda f: f.stat().st_mtime, reverse=True)[:200]:
         try:
-            log.info(f"[collector] running: {name}")
-            bundle["collectors"][name] = fn()
+            stat      = pf_file.stat()
+            name      = pf_file.stem.upper()   # "MIMIKATZ-ABCDEF01"
+            exe_name  = name.rsplit("-", 1)[0]  # "MIMIKATZ"
+            mtime     = datetime.fromtimestamp(
+                            stat.st_mtime, tz=timezone.utc
+                        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            flags = [ioc for ioc in ioc_list if ioc in exe_name]
+            entry = {
+                "filename":   pf_file.name,
+                "exe_name":   exe_name,
+                "size_bytes": stat.st_size,
+                "last_run":   mtime,
+                "flags":      flags,
+            }
+            entries.append(entry)
+            if flags:
+                suspicious.append(entry)
+        except Exception:
+            continue
+
+    return {
+        "count":       len(entries),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "entries":     entries,
+        "scenario_ioc": ioc_list,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 7: Browser History
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _browser_hist(scenario: str = "baseline") -> dict:
+    """
+    Chrome and Edge browser history + downloads.
+    Insider scenario: flags cloud exfiltration domains.
+    """
+    log.info("[collector] browser_hist starting...")
+
+    PROFILE_DIRS = []
+    local_app = Path(os.environ.get("LOCALAPPDATA", "C:\\Users\\Default\\AppData\\Local"))
+
+    for browser, rel in [
+        ("Chrome", r"Google\Chrome\User Data"),
+        ("Edge",   r"Microsoft\Edge\User Data"),
+        ("Brave",  r"BraveSoftware\Brave-Browser\User Data"),
+    ]:
+        base = local_app / rel
+        if base.exists():
+            for profile in ["Default"] + [f"Profile {i}" for i in range(1, 5)]:
+                history_db = base / profile / "History"
+                if history_db.exists():
+                    PROFILE_DIRS.append((browser, profile, history_db))
+
+    exfil_domains = INSIDER_BROWSER_IOC_DOMAINS if scenario == "insider" else []
+    entries     = []
+    suspicious  = []
+
+    for browser, profile, db_path in PROFILE_DIRS:
+        try:
+            import shutil, tempfile, sqlite3
+            # copy DB (Chrome holds a lock)
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+                tmp_path = tmp.name
+            shutil.copy2(db_path, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            conn.row_factory = sqlite3.Row
+
+            # visits
+            cur = conn.execute(
+                "SELECT url, title, visit_count, "
+                "datetime(last_visit_time/1000000-11644473600,'unixepoch') AS visited "
+                "FROM urls ORDER BY last_visit_time DESC LIMIT 200"
+            )
+            for row in cur:
+                url = row["url"] or ""
+                flags = []
+                for domain in exfil_domains:
+                    if domain in url.lower():
+                        flags.append(f"EXFIL_DOMAIN:{domain}")
+                entry = {
+                    "browser": browser,
+                    "profile": profile,
+                    "url":     url[:256],
+                    "title":   (row["title"] or "")[:128],
+                    "visits":  row["visit_count"],
+                    "visited": row["visited"],
+                    "flags":   flags,
+                }
+                entries.append(entry)
+                if flags:
+                    suspicious.append(entry)
+
+            # downloads
+            try:
+                dcur = conn.execute(
+                    "SELECT current_path, tab_url, "
+                    "datetime(start_time/1000000-11644473600,'unixepoch') AS started "
+                    "FROM downloads ORDER BY start_time DESC LIMIT 50"
+                )
+                for drow in dcur:
+                    entries.append({
+                        "browser":  browser,
+                        "type":     "download",
+                        "path":     drow["current_path"],
+                        "from_url": (drow["tab_url"] or "")[:256],
+                        "started":  drow["started"],
+                        "flags":    [],
+                    })
+            except Exception:
+                pass
+
+            conn.close()
+            os.unlink(tmp_path)
+        except Exception as e:
+            log.debug(f"browser_hist {browser}/{profile}: {e}")
+
+    return {
+        "total":       len(entries),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "entries":     entries[:300],
+        "profiles":    [(b, p) for b, p, _ in PROFILE_DIRS],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COLLECTOR 8: Scheduled Tasks
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _scheduled_tasks(scenario: str = "baseline") -> dict:
+    """
+    All scheduled tasks.
+    Flags: SYSTEM-privilege tasks running shell interpreters.
+    """
+    log.info("[collector] scheduled_tasks starting...")
+
+    SUSPICIOUS_ACTIONS = [
+        "cmd.exe", "powershell", "wscript", "cscript",
+        "mshta", "rundll32", "regsvr32", "certutil",
+        "bitsadmin", "installutil", "\\temp\\", "\\tmp\\",
+    ]
+    if scenario == "ransomware":
+        SUSPICIOUS_ACTIONS += ["vssadmin", "wbadmin", "bcdedit"]
+    if scenario in ("insider", "intrusion"):
+        SUSPICIOUS_ACTIONS += ["rclone", "nc.exe", "ncat"]
+
+    raw = _run(
+        "schtasks /query /FO CSV /V",
+        timeout=20
+    )
+    tasks      = []
+    suspicious = []
+
+    lines = raw.splitlines()
+    if not lines:
+        return {"count": 0, "tasks": [], "suspicious": []}
+
+    header = [h.strip('"').lower() for h in lines[0].split(",")]
+    for line in lines[1:]:
+        parts = [p.strip('"') for p in line.split(",")]
+        if len(parts) < len(header):
+            continue
+        row = dict(zip(header, parts))
+        task_name  = row.get("taskname", "")
+        run_as     = row.get("run as user", "").lower()
+        task_to_run= row.get("task to run", "").lower()
+        status     = row.get("status", "")
+
+        flags = []
+        if "system" in run_as or "localsystem" in run_as:
+            for act in SUSPICIOUS_ACTIONS:
+                if act in task_to_run:
+                    flags.append(f"SYSTEM_SHELL:{act}")
+        for act in SUSPICIOUS_ACTIONS:
+            if act in task_to_run and "system" not in run_as:
+                flags.append(f"SUSPICIOUS_ACTION:{act}")
+
+        entry = {
+            "name":      task_name,
+            "run_as":    row.get("run as user",""),
+            "action":    row.get("task to run","")[:256],
+            "status":    status,
+            "schedule":  row.get("schedule type",""),
+            "last_run":  row.get("last run time",""),
+            "next_run":  row.get("next run time",""),
+            "flags":     flags,
+        }
+        tasks.append(entry)
+        if flags:
+            suspicious.append(entry)
+
+    return {
+        "count":       len(tasks),
+        "suspicious_count": len(suspicious),
+        "suspicious":  suspicious,
+        "tasks":       tasks,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def collect_all(which: Optional[List[str]] = None,
+                scenario: str = "baseline") -> dict:
+    """
+    Run forensic collectors and return a unified bundle.
+
+    Args:
+        which:    explicit list of collector names to run (overrides scenario)
+        scenario: "baseline" | "ransomware" | "insider" | "intrusion"
+
+    Returns:
+        bundle dict with collectors, errors, hostname, metadata
+    """
+    if scenario not in SCENARIOS:
+        log.warning(f"unknown scenario '{scenario}', using baseline")
+        scenario = "baseline"
+
+    collectors_to_run = which or SCENARIOS[scenario]
+
+    COLLECTOR_MAP = {
+        "proc_list":       _proc_list,
+        "net_state":       _net_state,
+        "reg_persistence": _reg_persistence,
+        "event_log":       _event_log,
+        "usb_history":     _usb_history,
+        "prefetch":        _prefetch,
+        "browser_hist":    _browser_hist,
+        "scheduled_tasks": _scheduled_tasks,
+    }
+
+    bundle: Dict[str, Any] = {
+        "timestamp":   _ts(),
+        "hostname":    socket.gethostname(),
+        "username":    os.environ.get("USERNAME", ""),
+        "platform":    platform.platform(),
+        "scenario":    scenario,
+        "collectors":  {},
+        "errors":      {},
+        "summary": {
+            "scenario": scenario,
+            "collectors_run": [],
+            "suspicious_total": 0,
+        }
+    }
+
+    for name in collectors_to_run:
+        fn = COLLECTOR_MAP.get(name)
+        if not fn:
+            log.warning(f"unknown collector: {name}")
+            continue
+        t0 = time.time()
+        try:
+            result = fn(scenario=scenario)
+            bundle["collectors"][name] = result
+            bundle["summary"]["collectors_run"].append(name)
+            susp = result.get("suspicious_count", 0)
+            bundle["summary"]["suspicious_total"] += susp
+            log.info(f"[collector] {name}: OK ({time.time()-t0:.1f}s) "
+                     f"suspicious={susp}")
         except Exception as e:
             bundle["errors"][name] = str(e)
-            log.warning(f"[collector] {name} failed: {e}")
-    return bundle
+            log.warning(f"[collector] {name}: FAILED -- {e}")
 
-if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    data = collect_all()
-    print(json.dumps(data, indent=2, default=str)[:6000])
+    return bundle

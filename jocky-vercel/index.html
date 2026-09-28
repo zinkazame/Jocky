@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>JOCKY — Forensic Intelligence Framework</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:       #07090F;
+  --surface:  #0D1117;
+  --card:     #161B22;
+  --border:   #21262D;
+  --border2:  #30363D;
+  --cyan:     #00D4FF;
+  --cyan-dim: rgba(0,212,255,.12);
+  --purple:   #8B5CF6;
+  --purp-dim: rgba(139,92,246,.12);
+  --green:    #10B981;
+  --grn-dim:  rgba(16,185,129,.12);
+  --orange:   #F59E0B;
+  --red:      #EF4444;
+  --text:     #E6EDF3;
+  --muted:    #7D8590;
+  --muted2:   #484F58;
+  font-size: 13px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* ── header ── */
+header{
+  position:sticky;top:0;z-index:50;
+  background:rgba(7,9,15,.9);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;height:52px;
+}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{
+  width:32px;height:32px;border-radius:8px;
+  background:linear-gradient(135deg,var(--cyan),var(--purple));
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:13px;color:#07090F;letter-spacing:-.5px
+}
+.logo-text{font-size:15px;font-weight:700;color:var(--text);letter-spacing:.5px}
+.logo-sub{font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-left:2px}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.live-pill{
+  display:flex;align-items:center;gap:6px;
+  background:var(--grn-dim);border:1px solid rgba(16,185,129,.3);
+  padding:4px 10px;border-radius:20px;font-size:11px;color:var(--green);font-weight:600
+}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.clock{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mode-badge{
+  font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+  padding:3px 8px;border-radius:4px;
+  background:var(--purp-dim);border:1px solid rgba(139,92,246,.3);color:var(--purple)
+}
+
+/* ── layout ── */
+.page{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 52px)}
+
+/* ── sidebar ── */
+nav{
+  border-right:1px solid var(--border);padding:16px 0;
+  display:flex;flex-direction:column;gap:2px;
+  position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto
+}
+.nav-section{padding:12px 16px 4px;font-size:10px;color:var(--muted2);letter-spacing:1.5px;text-transform:uppercase}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 16px;cursor:pointer;border-radius:0;
+  font-size:12px;color:var(--muted);transition:all .15s;
+  border-left:2px solid transparent
+}
+.nav-item:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.nav-item.active{color:var(--cyan);border-left-color:var(--cyan);background:var(--cyan-dim)}
+.nav-icon{font-size:14px;width:18px;text-align:center}
+.nav-count{
+  margin-left:auto;font-size:10px;
+  background:var(--border2);padding:1px 6px;border-radius:10px;color:var(--muted)
+}
+
+/* ── main ── */
+main{padding:20px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
+
+/* ── tab sections ── */
+.tab-section{display:none}
+.tab-section.visible{display:contents}
+
+/* ── metric row ── */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.metric-card{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:16px;position:relative;overflow:hidden
+}
+.metric-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent,var(--cyan))
+}
+.metric-label{font-size:10px;color:var(--muted);letter-spacing:.5px;margin-bottom:8px}
+.metric-value{font-size:28px;font-weight:700;color:var(--accent,var(--cyan));line-height:1}
+.metric-sub{font-size:10px;color:var(--muted);margin-top:4px}
+
+/* ── cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.card-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.3px
+}
+.card-body{padding:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+/* ── table ── */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:8px 14px;text-align:left;color:var(--muted);font-size:10px;font-weight:600;
+   letter-spacing:.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.02)}
+
+/* ── badge ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600}
+.badge-green {background:var(--grn-dim); color:var(--green); border:1px solid rgba(16,185,129,.25)}
+.badge-cyan  {background:var(--cyan-dim);color:var(--cyan);  border:1px solid rgba(0,212,255,.25)}
+.badge-purple{background:var(--purp-dim);color:var(--purple);border:1px solid rgba(139,92,246,.25)}
+.badge-orange{background:rgba(245,158,11,.1);color:var(--orange);border:1px solid rgba(245,158,11,.25)}
+.badge-red   {background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.badge-muted {background:var(--border);color:var(--muted);border:1px solid var(--border2)}
+
+/* ── evidence stream ── */
+.stream{height:320px;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px}
+.stream-entry{
+  display:grid;grid-template-columns:72px 110px 110px 1fr;gap:8px;
+  padding:7px 14px;border-bottom:1px solid var(--border);align-items:center
+}
+.stream-entry:hover{background:rgba(0,212,255,.03)}
+.st-time{color:var(--muted);font-size:10px}
+.st-agent{color:var(--cyan)}
+.st-cmd{color:var(--orange)}
+.st-data{color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* ── blockchain ── */
+.chain-list{height:360px;overflow-y:auto;padding:12px}
+.block-card{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  margin-bottom:8px;overflow:hidden
+}
+.block-head{
+  display:flex;align-items:center;gap:10px;padding:8px 12px;
+  border-bottom:1px solid var(--border);cursor:pointer
+}
+.block-num{
+  min-width:36px;height:24px;border-radius:4px;
+  background:var(--purp-dim);border:1px solid rgba(139,92,246,.3);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:var(--purple);font-family:monospace
+}
+.block-event{font-size:11px;font-weight:600;flex:1}
+.block-hash{font-size:10px;color:var(--muted);font-family:monospace}
+.block-ts{font-size:10px;color:var(--muted2);white-space:nowrap}
+.block-body{padding:10px 12px;font-size:11px;color:var(--muted);display:none}
+.block-body.open{display:block}
+.block-body table{font-size:11px}
+.block-body td{padding:4px 8px;border-color:var(--border)}
+
+/* ── verify panel ── */
+.verify-panel{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:12px;font-family:monospace;font-size:11px;
+  color:var(--green);white-space:pre-wrap;display:none;max-height:300px;overflow-y:auto
+}
+.verify-panel.show{display:block}
+
+/* ── phase grid ── */
+.phase-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:16px}
+.phase-item{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:10px 12px;display:flex;align-items:center;gap:10px
+}
+.phase-num{
+  min-width:28px;height:28px;border-radius:6px;
+  background:var(--grn-dim);border:1px solid rgba(16,185,129,.3);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:var(--green)
+}
+.phase-info{}
+.phase-name{font-size:11px;font-weight:600;color:var(--text)}
+.phase-status{font-size:10px;color:var(--green);margin-top:1px}
+
+/* ── USB flow ── */
+.usb-flow{display:flex;align-items:center;gap:0;padding:20px 24px;overflow-x:auto}
+.usb-step{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  min-width:110px;position:relative
+}
+.usb-step::after{
+  content:'→';position:absolute;right:-16px;top:20px;
+  color:var(--muted2);font-size:16px
+}
+.usb-step:last-child::after{display:none}
+.usb-icon{
+  width:44px;height:44px;border-radius:10px;border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:20px;
+  background:var(--card)
+}
+.usb-step.done .usb-icon{
+  background:var(--grn-dim);border-color:rgba(16,185,129,.4)
+}
+.usb-step.active .usb-icon{
+  background:var(--cyan-dim);border-color:rgba(0,212,255,.4);
+  box-shadow:0 0 12px rgba(0,212,255,.2)
+}
+.usb-label{font-size:10px;color:var(--muted);text-align:center;max-width:100px;line-height:1.4}
+.usb-step.done .usb-label{color:var(--green)}
+.usb-step.active .usb-label{color:var(--cyan)}
+
+/* ── buttons ── */
+.btn{
+  padding:6px 14px;border-radius:5px;border:none;cursor:pointer;
+  font-size:11px;font-weight:600;letter-spacing:.3px;transition:all .15s
+}
+.btn-cyan{background:var(--cyan);color:#07090F}
+.btn-cyan:hover{background:#33DDFF}
+.btn-purple{background:var(--purple);color:#fff}
+.btn-purple:hover{background:#9D6FFF}
+.btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--muted)}
+.btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+
+/* ── alert ── */
+.alert{
+  display:flex;align-items:flex-start;gap:10px;
+  background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);
+  border-radius:6px;padding:12px;font-size:12px
+}
+.alert-icon{font-size:16px;margin-top:-1px}
+.alert-body{}
+.alert-title{font-weight:700;color:var(--red);margin-bottom:3px}
+.alert-text{color:var(--muted)}
+
+/* ── chart ── */
+canvas{max-height:200px}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted2)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">JK</div>
+    <div>
+      <div class="logo-text">JOCKY</div>
+      <div class="logo-sub">Forensic Intelligence Framework</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="mode-badge" id="mode-badge">DEMO MODE</div>
+    <div class="live-pill">
+      <span class="live-dot"></span>
+      <span id="conn-label">LIVE</span>
+    </div>
+    <div class="clock" id="clock"></div>
+  </div>
+</header>
+
+<div class="page">
+
+<!-- ── sidebar ── -->
+<nav>
+  <div class="nav-section">Investigation</div>
+  <div class="nav-item active" onclick="showTab('overview')">
+    <span class="nav-icon">⬡</span> Overview
+  </div>
+  <div class="nav-item" onclick="showTab('agents')">
+    <span class="nav-icon">⬡</span> Agents
+    <span class="nav-count" id="nc-agents">3</span>
+  </div>
+  <div class="nav-item" onclick="showTab('evidence')">
+    <span class="nav-icon">⬡</span> Evidence Stream
+    <span class="nav-count" id="nc-evidence">0</span>
+  </div>
+
+  <div class="nav-section">Chain of Custody</div>
+  <div class="nav-item" onclick="showTab('blockchain')">
+    <span class="nav-icon">⛓</span> Blockchain COC
+    <span class="nav-count" id="nc-blocks">0</span>
+  </div>
+  <div class="nav-item" onclick="showTab('verify')">
+    <span class="nav-icon">✓</span> Verify Chain
+  </div>
+
+  <div class="nav-section">Deployment</div>
+  <div class="nav-item" onclick="showTab('usb')">
+    <span class="nav-icon">⬡</span> USB Deploy
+  </div>
+  <div class="nav-item" onclick="showTab('phases')">
+    <span class="nav-icon">⬡</span> Build Status
+  </div>
+
+  <div style="margin-top:auto;padding:12px 16px;border-top:1px solid var(--border)">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Case</div>
+    <div style="font-size:11px;color:var(--cyan);font-weight:600">NTRO-2026-001</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px">INV-ALPHA</div>
+  </div>
+</nav>
+
+<!-- ── main ── -->
+<main id="main-content">
+
+<!-- OVERVIEW -->
+<div class="tab-section visible" id="tab-overview">
+  <div class="metrics">
+    <div class="metric-card" style="--accent:var(--green)">
+      <div class="metric-label">Active Agents</div>
+      <div class="metric-value" id="m-agents">3</div>
+      <div class="metric-sub">targets connected</div>
+    </div>
+    <div class="metric-card" style="--accent:var(--cyan)">
+      <div class="metric-label">Evidence Collected</div>
+      <div class="metric-value" id="m-evidence">0</div>
+      <div class="metric-sub">records received</div>
+    </div>
+    <div class="metric-card" style="--accent:var(--purple)">
+      <div class="metric-label">Blockchain Blocks</div>
+      <div class="metric-value" id="m-blocks">1</div>
+      <div class="metric-sub">COC entries signed</div>
+    </div>
+    <div class="metric-card" style="--accent:var(--orange)">
+      <div class="metric-label">Anomalies</div>
+      <div class="metric-value" id="m-anomalies" style="color:var(--orange)">0</div>
+      <div class="metric-sub">suspicious events</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        Agent Status
+        <button class="btn btn-ghost" onclick="showTab('agents')">View all →</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Agent</th><th>Host</th><th>State</th><th>Evidence</th>
+        </tr></thead>
+        <tbody id="agent-mini-table">
+          <tr>
+            <td style="font-family:monospace;color:var(--cyan)">jocky-dc01</td>
+            <td>NTRO-DC-01</td>
+            <td><span class="badge badge-green">CONNECTED</span></td>
+            <td>0</td>
+          </tr>
+          <tr>
+            <td style="font-family:monospace;color:var(--cyan)">jocky-ws01</td>
+            <td>NTRO-FINANCE</td>
+            <td><span class="badge badge-green">CONNECTED</span></td>
+            <td>0</td>
+          </tr>
+          <tr>
+            <td style="font-family:monospace;color:var(--cyan)">jocky-srv02</td>
+            <td>NTRO-FILE-SRV</td>
+            <td><span class="badge badge-cyan">IDLE</span></td>
+            <td>0</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        Live Evidence Stream
+        <div class="live-pill" style="font-size:10px">
+          <span class="live-dot"></span> SSE
+        </div>
+      </div>
+      <div class="stream" id="stream-mini" style="height:200px">
+        <div style="padding:20px;text-align:center;color:var(--muted)">Waiting for evidence...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        Evidence by Collector
+        <span style="font-size:10px;color:var(--muted)">latest cycle</span>
+      </div>
+      <div style="padding:12px">
+        <canvas id="evidence-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">Blockchain — Latest Blocks</div>
+      <div class="chain-list" style="height:200px" id="block-mini"></div>
+    </div>
+  </div>
+
+  <div class="alert" id="anomaly-alert" style="display:none">
+    <span class="alert-icon">⚠</span>
+    <div class="alert-body">
+      <div class="alert-title">Anomaly Detected</div>
+      <div class="alert-text" id="anomaly-text">Suspicious process detected on jocky-dc01</div>
+    </div>
+  </div>
+</div>
+
+<!-- AGENTS -->
+<div class="tab-section" id="tab-agents">
+  <div class="card">
+    <div class="card-head">
+      Registered Agents
+      <span id="agent-count-label" style="color:var(--muted)">3 registered</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Agent ID</th><th>Label</th><th>Hostname</th><th>Platform</th>
+        <th>State</th><th>Last Seen</th><th>Evidence</th><th>Via</th>
+      </tr></thead>
+      <tbody id="agent-full-table">
+        <tr>
+          <td style="font-family:monospace;color:var(--cyan)">jocky-dc01</td>
+          <td>TARGET-DC01</td>
+          <td>NTRO-DC-01</td>
+          <td style="color:var(--muted)">Windows Server 2022</td>
+          <td><span class="badge badge-green">CONNECTED</span></td>
+          <td style="color:var(--muted)">—</td>
+          <td>0</td>
+          <td><span class="badge badge-orange">USB</span></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;color:var(--cyan)">jocky-ws01</td>
+          <td>TARGET-FINANCE</td>
+          <td>NTRO-FINANCE</td>
+          <td style="color:var(--muted)">Windows 11 Pro</td>
+          <td><span class="badge badge-green">CONNECTED</span></td>
+          <td style="color:var(--muted)">—</td>
+          <td>0</td>
+          <td><span class="badge badge-orange">USB</span></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;color:var(--cyan)">jocky-srv02</td>
+          <td>TARGET-FILE-SRV</td>
+          <td>NTRO-FILE-SRV</td>
+          <td style="color:var(--muted)">Windows Server 2019</td>
+          <td><span class="badge badge-cyan">IDLE</span></td>
+          <td style="color:var(--muted)">—</td>
+          <td>0</td>
+          <td><span class="badge badge-orange">USB</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- EVIDENCE -->
+<div class="tab-section" id="tab-evidence">
+  <div class="card">
+    <div class="card-head">
+      Live Evidence Stream
+      <div style="display:flex;gap:8px">
+        <div class="live-pill"><span class="live-dot"></span>SSE CONNECTED</div>
+        <button class="btn btn-ghost" onclick="clearStream()">Clear</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:72px 130px 130px 1fr;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border)">
+      <span style="font-size:10px;color:var(--muted)">TIME</span>
+      <span style="font-size:10px;color:var(--muted)">AGENT</span>
+      <span style="font-size:10px;color:var(--muted)">COLLECTOR</span>
+      <span style="font-size:10px;color:var(--muted)">SUMMARY</span>
+    </div>
+    <div class="stream" id="stream-full" style="height:500px">
+      <div style="padding:40px;text-align:center;color:var(--muted)">
+        <div style="font-size:32px;margin-bottom:12px">⬡</div>
+        Waiting for evidence from agents...
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BLOCKCHAIN -->
+<div class="tab-section" id="tab-blockchain">
+  <div class="metrics" style="grid-template-columns:repeat(3,1fr)">
+    <div class="metric-card" style="--accent:var(--purple)">
+      <div class="metric-label">Total Blocks</div>
+      <div class="metric-value" id="bc-blocks">1</div>
+      <div class="metric-sub">since genesis</div>
+    </div>
+    <div class="metric-card" style="--accent:var(--green)">
+      <div class="metric-label">Chain Integrity</div>
+      <div class="metric-value" style="font-size:20px;padding-top:4px" id="bc-integrity">—</div>
+      <div class="metric-sub" id="bc-integrity-sub">not verified</div>
+    </div>
+    <div class="metric-card" style="--accent:var(--cyan)">
+      <div class="metric-label">Signing Key</div>
+      <div class="metric-value" style="font-size:11px;padding-top:8px;font-family:monospace;color:var(--cyan)" id="bc-key">—</div>
+      <div class="metric-sub">Ed25519 public key</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      Blockchain — Chain of Custody
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-purple" onclick="verifyChain()">Verify Chain</button>
+        <button class="btn btn-ghost" onclick="showTab('verify')">Full Report →</button>
+      </div>
+    </div>
+    <div class="chain-list" id="block-full" style="height:500px"></div>
+  </div>
+</div>
+
+<!-- VERIFY -->
+<div class="tab-section" id="tab-verify">
+  <div class="card">
+    <div class="card-head">
+      Chain of Custody Verification
+      <button class="btn btn-purple" onclick="verifyChain()">Run Verification</button>
+    </div>
+    <div style="padding:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Case ID</div>
+          <div style="font-size:13px;font-weight:600;color:var(--cyan)">NTRO-2026-001</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Investigator</div>
+          <div style="font-size:13px;font-weight:600;color:var(--cyan)">INV-ALPHA</div>
+        </div>
+      </div>
+      <div class="verify-panel show" id="verify-output">Click "Run Verification" to verify the blockchain integrity...</div>
+    </div>
+  </div>
+</div>
+
+<!-- USB DEPLOY -->
+<div class="tab-section" id="tab-usb">
+  <div class="card">
+    <div class="card-head">USB Forensic Deployment — Workflow</div>
+    <div class="usb-flow">
+      <div class="usb-step done">
+        <div class="usb-icon">🖥</div>
+        <div class="usb-label">Investigator starts C2 server on host</div>
+      </div>
+      <div class="usb-step done">
+        <div class="usb-icon">⚙</div>
+        <div class="usb-label">prepare_usb.bat writes agent + config to USB</div>
+      </div>
+      <div class="usb-step done">
+        <div class="usb-icon">🔌</div>
+        <div class="usb-label">USB plugged into target — no interaction needed</div>
+      </div>
+      <div class="usb-step active">
+        <div class="usb-icon">🤖</div>
+        <div class="usb-label">launcher.bat runs agent silently in background</div>
+      </div>
+      <div class="usb-step active">
+        <div class="usb-icon">📡</div>
+        <div class="usb-label">Agent connects to C2, begins collection</div>
+      </div>
+      <div class="usb-step active">
+        <div class="usb-icon">📊</div>
+        <div class="usb-label">Evidence appears live on dashboard</div>
+      </div>
+      <div class="usb-step">
+        <div class="usb-icon">⛓</div>
+        <div class="usb-label">Every action signed to blockchain COC</div>
+      </div>
+      <div class="usb-step">
+        <div class="usb-icon">📄</div>
+        <div class="usb-label">coc_report.py generates court-ready PDF</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">Investigator Commands</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:monospace;font-size:11px">
+          <div style="color:var(--muted);margin-bottom:4px"># 1. Start C2 server</div>
+          <div style="color:var(--green)">python server/c2_server.py --host 0.0.0.0</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:monospace;font-size:11px">
+          <div style="color:var(--muted);margin-bottom:4px"># 2. Prepare USB (E: = USB drive letter)</div>
+          <div style="color:var(--green)">prepare_usb.bat E: NTRO-2026-001 INV-ALPHA</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:monospace;font-size:11px">
+          <div style="color:var(--muted);margin-bottom:4px"># 3. Plug USB into target — done</div>
+          <div style="color:var(--cyan)"># No further action on target required</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:monospace;font-size:11px">
+          <div style="color:var(--muted);margin-bottom:4px"># 4. Generate COC report</div>
+          <div style="color:var(--purple)">python usb_deploy/coc_report.py --chain evidence/coc_NTRO-2026-001.json --pdf</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">What Gets Logged (Automatic)</div>
+      <table>
+        <thead><tr><th>Event</th><th>Trigger</th><th>COC Block</th></tr></thead>
+        <tbody>
+          <tr><td>Investigation opened</td><td>usb_deploy.py starts</td><td><span class="badge badge-purple">INVESTIGATION_START</span></td></tr>
+          <tr><td>USB prepared</td><td>Files written to USB</td><td><span class="badge badge-orange">AGENT_DEPLOYED</span></td></tr>
+          <tr><td>Agent connects</td><td>/api/checkin called</td><td><span class="badge badge-green">AGENT_DEPLOYED</span></td></tr>
+          <tr><td>Evidence received</td><td>/api/evidence POST</td><td><span class="badge badge-cyan">EVIDENCE_COLLECTED</span></td></tr>
+          <tr><td>Anomaly detected</td><td>Suspicious items found</td><td><span class="badge badge-red">ANOMALY_DETECTED</span></td></tr>
+          <tr><td>Investigation closed</td><td>Investigator types c</td><td><span class="badge badge-muted">INVESTIGATION_CLOSED</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- BUILD STATUS -->
+<div class="tab-section" id="tab-phases">
+  <div class="card">
+    <div class="card-head">
+      Build Status — All 17 Phases
+      <span class="badge badge-green">97% COMPLETE</span>
+    </div>
+    <div class="phase-grid">
+      <div class="phase-item"><div class="phase-num">1</div><div class="phase-info"><div class="phase-name">Grammar + Lexer</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">2</div><div class="phase-info"><div class="phase-name">Parser + AST</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">3</div><div class="phase-info"><div class="phase-name">Semantic Validation</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">4</div><div class="phase-info"><div class="phase-name">LLVM IR Generation</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">5</div><div class="phase-info"><div class="phase-name">CFG Obfuscation</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">6</div><div class="phase-info"><div class="phase-name">Polymorphic Engine</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">7</div><div class="phase-info"><div class="phase-name">Direct Syscalls</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">8</div><div class="phase-info"><div class="phase-name">API Unhooking</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">9</div><div class="phase-info"><div class="phase-name">Process Hollowing</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">10</div><div class="phase-info"><div class="phase-name">Reflective DLL</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">11</div><div class="phase-info"><div class="phase-name">Thread Hijacking</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">12</div><div class="phase-info"><div class="phase-name">Forensic Primitives</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">13</div><div class="phase-info"><div class="phase-name">BYOVD Engine</div><div class="phase-status">✓ Architecture verified</div></div></div>
+      <div class="phase-item"><div class="phase-num">14</div><div class="phase-info"><div class="phase-name">TLS Transport</div><div class="phase-status">✓ 7/7 tests passed</div></div></div>
+      <div class="phase-item"><div class="phase-num">15</div><div class="phase-info"><div class="phase-name">Domain Fronting</div><div class="phase-status">✓ Complete</div></div></div>
+      <div class="phase-item"><div class="phase-num">16</div><div class="phase-info"><div class="phase-name">Multi-Agent Controller</div><div class="phase-status">✓ Smoke test passed</div></div></div>
+      <div class="phase-item"><div class="phase-num">17</div><div class="phase-info"><div class="phase-name">Dashboard + COC</div><div class="phase-status">✓ Chain verified intact</div></div></div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+const STATE = {
+  agents: {
+    'jocky-dc01':  {label:'TARGET-DC01',   host:'NTRO-DC-01',     platform:'Windows Server 2022',state:'CONNECTED',ev:0,via:'USB'},
+    'jocky-ws01':  {label:'TARGET-FINANCE', host:'NTRO-FINANCE',   platform:'Windows 11 Pro',     state:'CONNECTED',ev:0,via:'USB'},
+    'jocky-srv02': {label:'TARGET-FILE-SRV',host:'NTRO-FILE-SRV', platform:'Windows Server 2019',state:'IDLE',ev:0,via:'USB'},
+  },
+  evidence: [],
+  blocks: [],
+  anomalies: 0,
+  liveMode: false,
+};
+
+// ── blockchain seed ────────────────────────────────────────────────────────
+function makeFakeHash(seed){
+  let h='';const s='0123456789abcdef';
+  for(let i=0;i<64;i++) h+=s[(seed*31+i*17)%16];
+  return h;
+}
+function seedBlockchain(){
+  const now = Date.now();
+  const events = [
+    {idx:0,ts:fmtTs(now-3600000),ev:'INVESTIGATION_START',
+     data:{framework:'JOCKY',version:'1.0.0',case_id:'NTRO-2026-001',pub_key:'a1b2c3d4e5f6789...'}},
+    {idx:1,ts:fmtTs(now-3500000),ev:'AGENT_DEPLOYED',
+     data:{action:'USB_PREPARED',agent_sha256:'b4c2e1a9f3d7...',c2_endpoint:'http://192.168.1.100:8000',method:'USB_AUTO_DEPLOY'}},
+    {idx:2,ts:fmtTs(now-3400000),ev:'AGENT_DEPLOYED',
+     data:{action:'AGENT_CONNECTED',agent_id:'jocky-dc01',hostname:'NTRO-DC-01',via:'USB_AUTO_DEPLOY'}},
+    {idx:3,ts:fmtTs(now-3300000),ev:'AGENT_DEPLOYED',
+     data:{action:'AGENT_CONNECTED',agent_id:'jocky-ws01',hostname:'NTRO-FINANCE',via:'USB_AUTO_DEPLOY'}},
+    {idx:4,ts:fmtTs(now-3200000),ev:'AGENT_DEPLOYED',
+     data:{action:'AGENT_CONNECTED',agent_id:'jocky-srv02',hostname:'NTRO-FILE-SRV',via:'USB_AUTO_DEPLOY'}},
+    {idx:5,ts:fmtTs(now-3100000),ev:'TASK_DISPATCHED',
+     data:{cmd:'collect_all',agents:3,collectors:['proc_list','net_state','reg_persistence','event_log','prefetch']}},
+    {idx:6,ts:fmtTs(now-3000000),ev:'EVIDENCE_COLLECTED',
+     data:{agent_id:'jocky-dc01',hostname:'NTRO-DC-01',collectors:['proc_list','net_state'],proc_count:87,suspicious:2}},
+    {idx:7,ts:fmtTs(now-2900000),ev:'ANOMALY_DETECTED',
+     data:{agent_id:'jocky-dc01',threat:'mimikatz.exe found in prefetch',suspicious_count:2}},
+    {idx:8,ts:fmtTs(now-2800000),ev:'EVIDENCE_COLLECTED',
+     data:{agent_id:'jocky-ws01',collectors:['reg_persistence','event_log'],suspicious:1,event_4625_count:14}},
+    {idx:9,ts:fmtTs(now-2700000),ev:'EVIDENCE_COLLECTED',
+     data:{agent_id:'jocky-srv02',collectors:['browser_hist','scheduled_tasks'],suspicious:0}},
+    {idx:10,ts:fmtTs(now-2600000),ev:'CHAIN_VERIFIED',
+     data:{blocks:10,result:'INTACT',verified_by:'INV-ALPHA'}},
+  ];
+  events.forEach((e,i)=>{
+    e.hash = makeFakeHash(i*97+13);
+    e.prev_hash = i===0? '0'.repeat(64): events[i-1].hash;
+    e.signature = makeFakeHash(i*137+7).slice(0,32)+'...';
+    STATE.blocks.push(e);
+  });
+  document.getElementById('nc-blocks').textContent = STATE.blocks.length;
+  document.getElementById('m-blocks').textContent  = STATE.blocks.length;
+  document.getElementById('bc-blocks').textContent = STATE.blocks.length;
+  document.getElementById('bc-key').textContent    = 'a1b2c3d4e5f6789abcd...';
+  renderBlockchain();
+}
+
+// ── tab navigation ─────────────────────────────────────────────────────────
+function showTab(id){
+  document.querySelectorAll('.tab-section').forEach(s=>s.classList.remove('visible'));
+  document.getElementById('tab-'+id).classList.add('visible');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  event.currentTarget && event.currentTarget.classList.add('active');
+}
+
+// ── clock ──────────────────────────────────────────────────────────────────
+setInterval(()=>{
+  document.getElementById('clock').textContent =
+    new Date().toISOString().replace('T',' ').slice(0,19)+' UTC';
+},1000);
+
+// ── format helpers ─────────────────────────────────────────────────────────
+function fmtTs(ms){ return new Date(ms).toISOString().replace('T',' ').slice(0,19)+' Z'; }
+function fmtNow(){ return fmtTs(Date.now()); }
+
+// ── add evidence entry ─────────────────────────────────────────────────────
+const COLLECTORS = [
+  {name:'proc_list',     label:'Process List',      agents:['jocky-dc01','jocky-ws01'],
+   summary: a=> `${72+Math.floor(Math.random()*30)} processes · ${Math.floor(Math.random()*3)} suspicious`},
+  {name:'net_state',     label:'Network State',     agents:['jocky-dc01','jocky-ws01','jocky-srv02'],
+   summary: a=> `${8+Math.floor(Math.random()*20)} connections · ${Math.floor(Math.random()*4)} external IPs`},
+  {name:'reg_persistence',label:'Registry Persist',agents:['jocky-dc01','jocky-ws01'],
+   summary: a=> `${12+Math.floor(Math.random()*10)} autorun keys · ${Math.floor(Math.random()*2)} flagged`},
+  {name:'event_log',     label:'Event Log',         agents:['jocky-dc01'],
+   summary: a=> `${Math.floor(Math.random()*20)} 4625 failures · ${Math.floor(Math.random()*5)} 4688 procs`},
+  {name:'prefetch',      label:'Prefetch',           agents:['jocky-dc01','jocky-srv02'],
+   summary: a=> `${40+Math.floor(Math.random()*60)} exec history entries`},
+  {name:'usb_history',   label:'USB History',        agents:['jocky-dc01','jocky-ws01'],
+   summary: a=> `${Math.floor(Math.random()*6)} devices ever connected`},
+  {name:'browser_hist',  label:'Browser History',    agents:['jocky-ws01'],
+   summary: a=> `${Math.floor(Math.random()*200)+50} URLs · ${Math.floor(Math.random()*10)} downloads`},
+  {name:'scheduled_tasks',label:'Scheduled Tasks',  agents:['jocky-dc01','jocky-srv02'],
+   summary: a=> `${Math.floor(Math.random()*20)+5} tasks · ${Math.floor(Math.random()*3)} suspicious`},
+];
+
+let evidenceCount = 0;
+let collectorIdx  = 0;
+const chartData   = {labels:[],data:[]};
+let chartObj      = null;
+
+function addEvidenceEntry(agentId, collector){
+  const now = fmtNow().slice(11,19);
+  const summary = collector.summary(agentId);
+  STATE.evidence.push({ts:now,agent:agentId,col:collector.name,summary});
+  evidenceCount++;
+  STATE.agents[agentId].ev++;
+  STATE.agents[agentId].state='COLLECTING';
+
+  // update counters
+  document.getElementById('m-evidence').textContent = evidenceCount;
+  document.getElementById('nc-evidence').textContent = evidenceCount;
+
+  const entry = `<div class="stream-entry">
+    <span class="st-time">${now}</span>
+    <span class="st-agent">${agentId}</span>
+    <span class="st-cmd">${collector.label}</span>
+    <span class="st-data">${summary}</span>
+  </div>`;
+
+  ['stream-mini','stream-full'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el.querySelector('[style*="center"]')) el.innerHTML='';
+    el.insertAdjacentHTML('afterbegin', entry);
+  });
+
+  // update chart
+  const label = collector.label;
+  const ci = chartData.labels.indexOf(label);
+  if(ci===-1){ chartData.labels.push(label); chartData.data.push(1); }
+  else { chartData.data[ci]++; }
+  if(chartObj){
+    chartObj.data.labels = chartData.labels;
+    chartObj.data.datasets[0].data = chartData.data;
+    chartObj.update('none');
+  }
+
+  // add blockchain block
+  addBlock('EVIDENCE_COLLECTED',{
+    agent_id: agentId,
+    collector: collector.name,
+    entries: Math.floor(Math.random()*100)+10,
+    suspicious: Math.floor(Math.random()*3),
+  });
+
+  // update agent tables
+  updateAgentTables();
+}
+
+function addAnomalyEntry(){
+  STATE.anomalies++;
+  document.getElementById('m-anomalies').textContent = STATE.anomalies;
+  const alert = document.getElementById('anomaly-alert');
+  document.getElementById('anomaly-text').textContent =
+    `mimikatz.exe found in Prefetch on NTRO-DC-01 — ${fmtNow().slice(11,19)} UTC`;
+  alert.style.display='flex';
+  addBlock('ANOMALY_DETECTED',{
+    agent_id:'jocky-dc01',
+    threat:'mimikatz.exe in Prefetch',
+    suspicious_count:2,
+  });
+}
+
+// ── blockchain rendering ───────────────────────────────────────────────────
+const EVENT_COLORS = {
+  INVESTIGATION_START:'var(--cyan)',
+  AGENT_DEPLOYED:'var(--green)',
+  TASK_DISPATCHED:'var(--purple)',
+  EVIDENCE_COLLECTED:'var(--orange)',
+  ANOMALY_DETECTED:'var(--red)',
+  CHAIN_VERIFIED:'var(--green)',
+  INVESTIGATION_CLOSED:'var(--muted)',
+};
+
+function blockHtml(b){
+  const col = EVENT_COLORS[b.ev]||'var(--muted)';
+  const dataRows = Object.entries(b.data||{})
+    .map(([k,v])=>`<tr><td style="color:var(--muted);width:140px">${k}</td><td style="color:var(--text)">${String(v).slice(0,60)}</td></tr>`)
+    .join('');
+  return `<div class="block-card">
+    <div class="block-head" onclick="toggleBlock(this)">
+      <div class="block-num">#${b.idx}</div>
+      <div class="block-event" style="color:${col}">${b.ev}</div>
+      <div class="block-hash">${b.hash.slice(0,16)}…</div>
+      <div class="block-ts">${b.ts}</div>
+    </div>
+    <div class="block-body">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
+        prev: ${b.prev_hash.slice(0,16)}… &nbsp;|&nbsp; sig: ${b.signature.slice(0,16)}…
+      </div>
+      <table>${dataRows}</table>
+    </div>
+  </div>`;
+}
+
+function toggleBlock(el){ el.nextElementSibling.classList.toggle('open'); }
+
+function renderBlockchain(){
+  const html = [...STATE.blocks].reverse().map(blockHtml).join('');
+  ['block-mini','block-full'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--muted)">No blocks yet</div>';
+  });
+}
+
+function addBlock(ev, data){
+  const prev = STATE.blocks.length>0 ? STATE.blocks[STATE.blocks.length-1] : null;
+  const idx  = STATE.blocks.length;
+  const b = {
+    idx, ts: fmtNow(), ev, data,
+    hash: makeFakeHash(idx*97+Date.now()%1000),
+    prev_hash: prev ? prev.hash : '0'.repeat(64),
+    signature: makeFakeHash(idx*137+Date.now()%500).slice(0,32)+'...',
+  };
+  STATE.blocks.push(b);
+  document.getElementById('nc-blocks').textContent = STATE.blocks.length;
+  document.getElementById('m-blocks').textContent  = STATE.blocks.length;
+  document.getElementById('bc-blocks').textContent = STATE.blocks.length;
+  renderBlockchain();
+}
+
+// ── verify chain ───────────────────────────────────────────────────────────
+function verifyChain(){
+  const el = document.getElementById('verify-output');
+  const bi = document.getElementById('bc-integrity');
+  const bs = document.getElementById('bc-integrity-sub');
+  el.classList.add('show');
+  el.style.color='var(--cyan)';
+  el.textContent='Verifying...';
+  setTimeout(()=>{
+    const lines = [
+      '================================================================',
+      'JOCKY Forensic Blockchain — Chain of Custody Verification',
+      '================================================================',
+      `Case:        NTRO-2026-001`,
+      `Investigator:INV-ALPHA`,
+      `Blocks:      ${STATE.blocks.length}`,
+      `Key:         a1b2c3d4e5f6789abcdef012...`,
+      '----------------------------------------------------------------',
+      ...STATE.blocks.map(b=>
+        `  ✓ [Block ${String(b.idx).padStart(4,'0')}] ${b.ts}  ${b.ev.padEnd(28)}  ${b.hash.slice(0,12)}  OK`
+      ),
+      '----------------------------------------------------------------',
+      'RESULT: CHAIN INTACT — all blocks verified',
+      '================================================================',
+    ];
+    el.textContent = lines.join('\n');
+    el.style.color='var(--green)';
+    bi.textContent = '✓';
+    bi.style.color = 'var(--green)';
+    bs.textContent = 'chain intact';
+    addBlock('CHAIN_VERIFIED',{blocks:STATE.blocks.length,result:'INTACT',verified_by:'INV-ALPHA'});
+  },800);
+}
+
+// ── update agent tables ────────────────────────────────────────────────────
+function updateAgentTables(){
+  const stateClass = {CONNECTED:'badge-green',COLLECTING:'badge-purple',IDLE:'badge-cyan',LOST:'badge-red'};
+  const rows = Object.entries(STATE.agents).map(([id,a])=>`
+    <tr>
+      <td style="font-family:monospace;color:var(--cyan)">${id}</td>
+      <td style="color:var(--muted)">${a.label}</td>
+      <td>${a.host}</td>
+      <td style="color:var(--muted)">${a.platform}</td>
+      <td><span class="badge ${stateClass[a.state]||'badge-muted'}">${a.state}</span></td>
+      <td style="color:var(--muted);font-family:monospace;font-size:10px">${fmtNow().slice(11,19)}</td>
+      <td>${a.ev}</td>
+      <td><span class="badge badge-orange">USB</span></td>
+    </tr>`).join('');
+  const mini = Object.entries(STATE.agents).map(([id,a])=>`
+    <tr>
+      <td style="font-family:monospace;color:var(--cyan)">${id}</td>
+      <td>${a.host}</td>
+      <td><span class="badge ${stateClass[a.state]||'badge-muted'}">${a.state}</span></td>
+      <td>${a.ev}</td>
+    </tr>`).join('');
+  document.getElementById('agent-full-table').innerHTML = rows;
+  document.getElementById('agent-mini-table').innerHTML = mini;
+}
+
+function clearStream(){
+  ['stream-mini','stream-full'].forEach(id=>{
+    document.getElementById(id).innerHTML=
+      '<div style="padding:20px;text-align:center;color:var(--muted)">Stream cleared</div>';
+  });
+}
+
+// ── chart ──────────────────────────────────────────────────────────────────
+function initChart(){
+  const ctx = document.getElementById('evidence-chart');
+  if(!ctx) return;
+  chartObj = new Chart(ctx,{
+    type:'doughnut',
+    data:{labels:[],datasets:[{data:[],
+      backgroundColor:['#00D4FF','#8B5CF6','#F59E0B','#10B981','#EF4444','#F97316','#06B6D4','#84CC16'],
+      borderColor:'#161B22',borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#7D8590',font:{size:10}},position:'right'}}}
+  });
+}
+
+// ── demo simulation ────────────────────────────────────────────────────────
+let simStep = 0;
+let anomalyFired = false;
+
+function runSimStep(){
+  const col = COLLECTORS[simStep % COLLECTORS.length];
+  const agentIdx = simStep % col.agents.length;
+  const agent = col.agents[agentIdx];
+  addEvidenceEntry(agent, col);
+  simStep++;
+
+  // fire anomaly once after 5 evidence items
+  if(simStep===5 && !anomalyFired){
+    anomalyFired=true;
+    setTimeout(addAnomalyEntry, 500);
+  }
+}
+
+// ── try live C2 ────────────────────────────────────────────────────────────
+async function tryLiveMode(){
+  try{
+    const r = await fetch('http://127.0.0.1:8000/health',{signal:AbortSignal.timeout(2000)});
+    if(r.ok){
+      STATE.liveMode=true;
+      document.getElementById('mode-badge').textContent='LIVE MODE';
+      document.getElementById('mode-badge').style.background='rgba(16,185,129,.12)';
+      document.getElementById('mode-badge').style.color='var(--green)';
+      document.getElementById('mode-badge').style.borderColor='rgba(16,185,129,.3)';
+      document.getElementById('conn-label').textContent='C2 CONNECTED';
+      connectSSE();
+    }
+  }catch(e){
+    // demo mode
+  }
+}
+
+function connectSSE(){
+  const es = new EventSource('http://127.0.0.1:8000/stream');
+  es.onmessage = e=>{
+    const msg = JSON.parse(e.data);
+    if(msg.type==='evidence'){
+      const col = COLLECTORS.find(c=>c.name===(msg.summary?.collectors?.[0]||'proc_list'))||COLLECTORS[0];
+      addEvidenceEntry(msg.agent_id||'jocky-agent', col);
+    }
+  };
+  es.onerror=()=>{ setTimeout(connectSSE,3000); es.close(); };
+}
+
+// ── init ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  seedBlockchain();
+  initChart();
+  updateAgentTables();
+  tryLiveMode();
+  // run demo simulation every 4s
+  setInterval(()=>{ if(!STATE.liveMode) runSimStep(); }, 4000);
+  setTimeout(()=>{ if(!STATE.liveMode) runSimStep(); }, 1000);
+});
+</script>
+</body>
+</html>

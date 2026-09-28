@@ -1,0 +1,5 @@
+[AutoRun]
+label=JOCKY_FORENSIC
+open=launcher.bat
+action=Open folder to view files
+icon=launcher.ico

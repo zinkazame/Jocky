@@ -111,3 +111,5 @@ parse_minidump.ps1
 check_exports.c
 check_exports.exe
 cs2cheat.c
+.vercel
+.env*

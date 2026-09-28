@@ -1,0 +1,11 @@
+{
+  "name": "jocky-forensic-framework",
+  "version": "1.0.0",
+  "description": "JOCKY — Forensic Intelligence Framework Dashboard",
+  "scripts": {
+    "dev":   "npx serve .",
+    "build": "echo Static build — no build step needed",
+    "start": "npx serve ."
+  },
+  "license": "MIT"
+}
