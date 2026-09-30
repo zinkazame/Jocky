@@ -1,0 +1,141 @@
+# ============================================================
+# JOCKY Standard Library — Forensic Primitives
+# jocky_lang/stdlib.jky
+#
+# Pre-defined investigation scripts.
+# Investigator calls these by name or writes custom .jky scripts.
+# Each script expands to a set of collector calls at runtime.
+# ============================================================
+
+# ── TRIAGE ────────────────────────────────────────────────────────────────────
+# Full baseline: who is running, what ports are open, what persists, recent events
+script triage {
+    collect proc_list           # all running processes + sha256 hashes
+    collect net_state           # tcp/udp connections + external IPs
+    collect reg_persistence     # autorun keys HKLM + HKCU
+    collect event_log           # security events: 4624/4625/4688/7045
+    flag proc_list.suspicious   # processes with no disk image
+    flag net_state.external_ips # any non-RFC1918 connections
+    alert if any.suspicious > 0
+}
+
+# ── PERSISTENCE CHECK ─────────────────────────────────────────────────────────
+# What survives a reboot? Registry, services, scheduled tasks
+script persistence_check {
+    collect reg_persistence     # Run / RunOnce / Winlogon / AppInit
+    collect scheduled_tasks     # tasks running as SYSTEM or from temp
+    flag reg_persistence.suspicious
+    flag scheduled_tasks.suspicious
+    alert if reg_persistence.suspicious > 0
+    alert if scheduled_tasks.suspicious > 0
+}
+
+# ── BROWSER FORENSICS ─────────────────────────────────────────────────────────
+# Full browser artifact collection: history, downloads, cached credentials
+script browser_forensics {
+    collect browser_hist        # Chrome + Edge + Firefox visited URLs
+    filter browser_hist.url contains [
+        "pastebin.com", "telegram.org", "discord.com",
+        "mega.nz", "wetransfer.com", "anonfiles.com",
+        "onion", ".tor", "protonmail"
+    ]
+    flag browser_hist.dangerous_downloads   # danger_type != 0
+    collect usb_history                     # exfil via USB?
+    alert if browser_hist.flagged > 0
+}
+
+# ── NETWORK FORENSICS ─────────────────────────────────────────────────────────
+# Deep network state: connections, DNS, ARP, routing
+script network_forensics {
+    collect net_state           # active tcp/udp + process mapping
+    collect dns_cache           # recently resolved domains
+    collect arp_table           # local network hosts
+    flag net_state.external_ips
+    flag net_state.threat_ips   # known bad ranges (Tor, malware CDNs)
+    filter net_state.remote_port in [4444, 8888, 1337, 31337, 6666, 9001]
+    alert if net_state.threat_ips > 0
+    alert if net_state.flagged_ports > 0
+}
+
+# ── EXFILTRATION INDICATORS ───────────────────────────────────────────────────
+# Signs data left the machine: cloud sync, USB, unusual outbound, large transfers
+script exfil_indicators {
+    collect net_state
+    collect browser_hist
+    collect usb_history
+    collect scheduled_tasks
+    filter net_state.bytes_sent > 10485760              # > 10MB sent
+    filter browser_hist.url contains ["drive.google", "onedrive", "dropbox",
+                                       "wetransfer", "sendspace"]
+    flag usb_history.devices                            # all USB devices ever
+    alert if usb_history.count > 0
+    alert if net_state.large_transfers > 0
+}
+
+# ── RANSOMWARE TRIAGE ─────────────────────────────────────────────────────────
+# Signs of ransomware: encrypted files, shadow copy deletion, unusual I/O
+script ransomware_triage {
+    collect proc_list
+    collect net_state
+    collect event_log
+    collect scheduled_tasks
+    filter proc_list.name contains ["vssadmin", "wbadmin", "bcdedit",
+                                     "cipher", "wevtutil"]
+    filter event_log.event_id in [524, 7036, 7045, 4719]   # system log clear
+    flag proc_list.high_cpu                             # crypto = high CPU
+    alert if proc_list.flagged > 0
+    alert if event_log.log_cleared > 0
+}
+
+# ── INSIDER THREAT ────────────────────────────────────────────────────────────
+# Employee exfiltration: browser, USB, email, after-hours access
+script insider_threat {
+    collect browser_hist
+    collect usb_history
+    collect event_log
+    collect scheduled_tasks
+    filter event_log.event_id in [4624, 4625, 4634]    # logon/logoff times
+    filter event_log.time after "18:00"                 # after-hours activity
+    filter browser_hist.url contains ["linkedin.com", "indeed.com",
+                                       "glassdoor.com", "wetransfer.com"]
+    flag usb_history.devices
+    alert if usb_history.count > 2
+    alert if event_log.after_hours_logon > 0
+}
+
+# ── MEMORY FORENSICS ──────────────────────────────────────────────────────────
+# Process memory strings: look for credentials, C2 URLs, shellcode indicators
+script memory_forensics {
+    collect proc_list
+    filter proc_list.suspicious                         # only scan suspicious pids
+    collect proc_memory from proc_list.suspicious.pid   # strings from process memory
+    filter proc_memory.strings contains ["password", "BEGIN RSA", "http://",
+                                          "cmd.exe /c", "powershell -enc",
+                                          "METERPRETER", "beacon"]
+    alert if proc_memory.flagged > 0
+}
+
+# ── MOBILE FORENSICS (Android) ────────────────────────────────────────────────
+# Android-specific: SMS, call logs, installed apps, location, contacts
+script mobile_forensics {
+    collect sms_history         # SMS messages (requires ADB access)
+    collect call_log            # call history
+    collect installed_apps      # all installed APKs + permissions
+    collect contacts            # contact list
+    collect location_history    # GPS history from Android
+    collect whatsapp_db         # WhatsApp message database
+    collect telegram_db         # Telegram local cache
+    filter installed_apps.permission contains "android.permission.READ_SMS"
+    flag installed_apps.unknown_source   # sideloaded apps
+    alert if installed_apps.flagged > 0
+}
+
+# ── FULL INVESTIGATION ────────────────────────────────────────────────────────
+# Run everything — use for thorough investigation when time allows
+script full_investigation {
+    run triage
+    run persistence_check
+    run browser_forensics
+    run network_forensics
+    run exfil_indicators
+}

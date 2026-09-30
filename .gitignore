@@ -113,3 +113,137 @@ check_exports.exe
 cs2cheat.c
 .vercel
 .env*
+# ══════════════════════════════════════════════════════════════════════════════
+# JOCKY Forensic Intelligence Framework -- .gitignore
+# ══════════════════════════════════════════
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Compiled binaries (build locally, never commit) ──────────────────────────
+*.exe
+*.sys
+*.obj
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# ── LLVM IR / build artefacts ────────────────────────────────────────────────
+*.ll
+*.bc
+language/grammar/example_scripts/build/
+
+# ── Vulnerable driver blobs (BYOVD) ──────────────────────────────────────────
+# Drivers live inside byovd/kernel_subverter/ -- never at project root.
+# The .sys pattern above covers them; these are belt-and-suspenders entries
+# for the specific filenames that ended up at root by mistake.
+/RTCore64.sys
+/WinRing0x64.sys
+/AsrDrv107.sys
+/DBUtil_2_3.sys
+/BS_LED64.sys
+/signed.sys
+*.bin
+
+# ── Misplaced BYOVD source files (belong in byovd/kernel_subverter/) ─────────
+/backend_winring0x64.c
+/byovd.h
+/check_exports.c
+/check_exports.exe
+/parse_minidump.ps1
+
+# ── Generated evidence data (NEVER commit real forensic captures) ─────────────
+evidence/
+*.pem
+*.key
+/blockchain_*.json
+/connections.json
+/dns_cache.json
+/mft_sample.json
+/modules_self.json
+/persistence.json
+/phys_ranges.json
+/prefetch.json
+/procs.json
+/services.json
+/suspicious_self.json
+/typed_urls.json
+/vad_self.json
+/ads.json
+/court_report.html
+
+# ── Standalone debug objects at root ─────────────────────────────────────────
+/reflective_loader.obj
+/syscall_stubs.obj
+/reflective_loader.*.obj
+
+# ── Test probe / fuzz binaries ────────────────────────────────────────────────
+test_*.exe
+*_probe.exe
+*_fuzz.exe
+*_sweep.exe
+
+# ── COMPLETELY UNRELATED FILES ────────────────────────────────────────────────
+# CS2 game cheat — no comment needed
+/cs2cheat.c
+
+# MSI Afterburner — GPU OC tool used during kernel layout probing; not JOCKY
+/MSIAfterburnerSetup*.exe
+/afterburner_extracted/
+/ab_zip/
+
+# LibreHardwareMonitor — hardware sensor lib; BYOVD dev dependency, not project code
+/LibreHardwareMonitor.zip
+/lhm_extracted/
+
+# OpenHardwareMonitor — same category
+/ohm.zip
+/ohm_extracted/
+
+# ── Secrets / local config ────────────────────────────────────────────────────
+.env
+.env.*
+.env.local
+local_config.py
+
+# ── Vercel (not a web-deployed app) ───────────────────────────────────────────
+.vercel/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs + temp ───────────────────────────────────────────────────────────────
+*.log
+*.tmp
+/project_tree.txt
+
+# ── Lark parser cache ─────────────────────────────────────────────────────────
+*.lark.cache
+
+# ── PyInstaller ───────────────────────────────────────────────────────────────
+*.spec
+
+# ── One-off BYOVD dev utilities (not framework code) ─────────────────────────
+fix_*.py
+patch_*.py
