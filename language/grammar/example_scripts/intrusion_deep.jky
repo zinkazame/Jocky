@@ -1,0 +1,97 @@
+# JOCKY Forensic Script — Deep Intrusion Response
+# Demonstrates: function definitions, when-conditionals, all six sections
+# Investigator: J.Sharma | Case: CASE-2026-0482
+
+# ── Reusable function: check a process for hollow injection ──────────────────
+define check_hollow(target_pid)
+    acquire loaded_modules(pid=target_pid)
+    acquire proc_memory(pid=target_pid)
+    acquire handles(pid=target_pid)
+    acquire tokens(pid=target_pid)
+    acquire heap_strings(pid=target_pid)
+
+# ── Reusable function: full credential sweep ─────────────────────────────────
+define credential_sweep()
+    extract browser_history(browser="chrome")
+    extract browser_cookies(browser="chrome")
+    extract browser_passwords(browser="chrome")
+    inspect registry(key="HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon")
+    inspect registry(key="HKCU\Software\SimonTatham\PuTTY\Sessions")
+
+# ── Reusable function: persistence audit ─────────────────────────────────────
+define persistence_audit()
+    inspect startup_items()
+    inspect scheduled_tasks()
+    inspect services(state="running")
+    inspect registry(key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run")
+    inspect registry(key="HKCU\Software\Microsoft\Windows\CurrentVersion\Run")
+    dump registry_hive(hive="HKLM\SAM")
+
+case
+    id          "CASE-2026-0482"
+    operator    "J.Sharma"
+    target      "WIN-MACHINE-07"
+    mode        "remote"
+
+section memory
+    acquire process_list()
+    acquire cpu_registers()
+    acquire drivers()
+    when suspicious > 0
+        call check_hollow(target_pid=1044)
+        acquire memory_region(pid=1044, size=65536)
+        hash memory_region(pid=1044, size=65536)
+        dump process(pid=1044)
+
+section network
+    acquire connections()
+    acquire dns_cache()
+    acquire arp_cache()
+    acquire route_table()
+    acquire sockets()
+    capture traffic(duration=30, interface="eth0")
+    when suspicious > 0
+        inspect named_pipes()
+        inspect shares()
+
+section system
+    call persistence_audit()
+    inspect event_log(log="Security", count=200)
+    inspect event_log(log="System", count=100)
+    inspect usb_history()
+    inspect prefetch_history()
+    inspect wifi_profiles()
+    list patches()
+    list software()
+    list sessions()
+    when suspicious > 2
+        call credential_sweep()
+        capture clipboard()
+        capture screen()
+
+section disk
+    hash file(path="C:\Windows\System32\lsass.exe")
+    hash directory(path="C:\Users\suspect\AppData\Roaming")
+    inspect file_metadata(path="C:\Users\suspect\AppData\Local\Temp")
+    inspect file_tree(path="C:\Users\suspect\Downloads", max_depth=3)
+    inspect ads(path="C:\Users\suspect")
+    inspect recent_files(count=50)
+    extract mft(volume="\\.\C:")
+    dump mft_raw(volume="\\.\C:")
+    dump pagefile()
+
+section files
+    extract evtx(path="C:\Windows\System32\winevt\Logs\Security.evtx")
+    extract prefetch(path="C:\Windows\Prefetch\MIMIKATZ.EXE-XXXXXXXX.pf")
+    extract registry_hive(path="C:\Users\suspect\NTUSER.DAT")
+    extract memory_strings(path="C:\Temp\memdump.bin", min_len=8)
+    extract lnk(path="C:\Users\suspect\AppData\Roaming\Microsoft\Windows\Recent\invoice.lnk")
+
+section android
+    inspect installed_apps()
+    inspect sms()
+    inspect call_log()
+    inspect location()
+    inspect whatsapp_db()
+    inspect telegram_db()
+    inspect contacts()

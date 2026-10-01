@@ -1,20 +1,57 @@
 // ============================================================
 // JOCKY Forensic Language Grammar
-// Version: 0.1.2
+// Version: 0.3.0
 // Parser mode: lalr + Indenter post-lexer (for indent/dedent)
+//
+// Changes from 0.1.x:
+//   - function definition blocks (define / endfn)
+//   - call command for user-defined functions
+//   - if/when conditional blocks
+//   - new sections: files, android
+//   - new commands: extract, dump, list
+//   - new primitives: prefetch_history, event_log, usb_history,
+//     browser_history, scheduled_tasks, arp_table, file_tree,
+//     proc_memory, loaded_modules, drivers, handles, tokens,
+//     shares, named_pipes, sockets, arp_cache, route_table,
+//     wifi_profiles, installed_apps, sms, call_log, location,
+//     whatsapp_db, telegram_db, contacts
 // ============================================================
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 //
 //  A valid JOCKY script is exactly:
 //    - optional blank lines / comment lines
+//    - optional function definitions (before the case block)
 //    - exactly one case block
 //    - one or more section blocks
 //
-//  Section *order* and *uniqueness* are NOT enforced here —
-//  they are post-parse validation constraints (see validation_rules.md).
+//  Functions must be declared before use (forward references not supported).
 
-start: _NL* case_block section_block+
+start: _NL* (_func_item)* case_block section_block+
+
+_func_item: func_def _NL*
+
+// ─── Function Definitions ─────────────────────────────────────────────────────
+//
+//  define proc_hollowing_check(target_pid)
+//      acquire process_list()
+//      acquire memory_region(pid=target_pid, size=65536)
+//      acquire loaded_modules(pid=target_pid)
+//
+//  Parameters are positional names — no types, no defaults in v0.3.
+//  Functions share the same command/primitive space as top-level sections.
+
+func_def: "define" func_name "(" param_list? ")" _NL _INDENT func_body _DEDENT
+
+func_name: NAME
+
+param_list: param_name ("," param_name)*
+param_name: NAME
+
+func_body: func_stmt+
+
+func_stmt: operation
+         | cond_block
 
 // ─── Case / Header Block ─────────────────────────────────────────────────────
 //
@@ -38,33 +75,69 @@ mode_field:     "mode"     STRING _NL
 //
 //  section memory
 //      acquire process_list()
-//      acquire memory_region(pid=1044, size=4096)
 //
-//  section_name uses named terminals (MEMORY, NETWORK, SYSTEM, DISK)
-//  so their values appear in the parse tree for Phase 3 validation.
+//  Extended section types: memory, network, system, disk, files, android
+//  Volatility order: memory > network > system > disk > files > android
+//  (android is always last — off-device collection)
 
-section_block: "section" section_name _NL _INDENT operation+ _DEDENT
+section_block: "section" section_name _NL _INDENT section_stmt+ _DEDENT
 
-section_name: MEMORY | NETWORK | SYSTEM | DISK
+section_name: MEMORY | NETWORK | SYSTEM | DISK | FILES | ANDROID
+
+// ─── Section Statements ───────────────────────────────────────────────────────
+//
+//  A section contains operations, conditional blocks, or function calls.
+
+section_stmt: operation
+            | cond_block
+            | call_stmt
 
 // ─── Operations ──────────────────────────────────────────────────────────────
 //
 //  <command> <primitive>(<arglist?>)
 //
-//  command uses named terminals (ACQUIRE, INSPECT, HASH, CAPTURE)
-//  so their values appear in the parse tree for Phase 4 dispatch.
-//
-//  primitive accepts NAME plus all keyword terminals — this is necessary
-//  because a keyword string (e.g. "disk") is a valid primitive name and
-//  the lexer would otherwise assign it the wrong token type.
+//  Commands: acquire, inspect, hash, capture, extract, dump, list
+//  Primitives: any NAME (validated post-parse by validator.py)
 
 operation: command primitive "(" arglist? ")" _NL?
 
-command: ACQUIRE | INSPECT | HASH | CAPTURE
+command: ACQUIRE | INSPECT | HASH | CAPTURE | EXTRACT | DUMP | LIST
 
 primitive: NAME
-         | MEMORY | NETWORK | SYSTEM | DISK
-         | ACQUIRE | INSPECT | HASH | CAPTURE
+         | MEMORY | NETWORK | SYSTEM | DISK | FILES | ANDROID
+         | ACQUIRE | INSPECT | HASH | CAPTURE | EXTRACT | DUMP | LIST
+
+// ─── Function Call ────────────────────────────────────────────────────────────
+//
+//  call proc_hollowing_check(pid=1044)
+//  call exfil_trace()
+
+call_stmt: "call" func_name "(" call_args? ")" _NL?
+
+call_args: call_arg ("," call_arg)*
+call_arg: NAME "=" arg_value
+
+// ─── Conditional Block ────────────────────────────────────────────────────────
+//
+//  when suspicious > 0
+//      inspect registry(key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run")
+//      acquire dns_cache()
+//
+//  Conditions are evaluated at interpreter runtime against the result
+//  accumulator. The grammar accepts any expression string — semantic
+//  evaluation is the interpreter's responsibility.
+
+cond_block: "when" cond_expr _NL _INDENT cond_body _DEDENT
+
+cond_expr: cond_term (COND_OP cond_term)*
+
+cond_term: NAME ("." NAME)*
+         | INTEGER
+         | STRING
+
+COND_OP: ">" | "<" | ">=" | "<=" | "==" | "!=" | "and" | "or"
+
+cond_body: section_stmt+
 
 // ─── Arguments ───────────────────────────────────────────────────────────────
 //
@@ -82,59 +155,49 @@ arg_name: NAME
 arg_value: STRING
          | INTEGER
          | NAME
-         | MEMORY | NETWORK | SYSTEM | DISK
-         | ACQUIRE | INSPECT | HASH | CAPTURE
+         | MEMORY | NETWORK | SYSTEM | DISK | FILES | ANDROID
+         | ACQUIRE | INSPECT | HASH | CAPTURE | EXTRACT | DUMP | LIST
 
 // ─── Named keyword terminals ──────────────────────────────────────────────────
 //
-//  Defined as named terminals (not anonymous string literals) so they
-//  survive into the parse tree. Lark gives string literals higher lexer
-//  priority than the NAME regex, so no ambiguity arises at the token level.
-//  The primitive and arg_value rules above handle positional ambiguity
-//  at the grammar level.
+//  Defined as named terminals so they survive into the parse tree.
+//  Priority: string literals > NAME regex (no lexer ambiguity).
 
 // Section names
 MEMORY  : "memory"
 NETWORK : "network"
 SYSTEM  : "system"
 DISK    : "disk"
+FILES   : "files"
+ANDROID : "android"
 
 // Command keywords
 ACQUIRE : "acquire"
 INSPECT : "inspect"
 HASH    : "hash"
 CAPTURE : "capture"
+EXTRACT : "extract"
+DUMP    : "dump"
+LIST    : "list"
 
 // ─── Core terminals ───────────────────────────────────────────────────────────
 
-// Double-quoted string — no escape sequences in v0.1.
-// Backslashes are treated as literal characters (Windows paths work correctly).
+// Double-quoted string — backslashes are literal (Windows paths work correctly).
 STRING  : "\"" /[^"]*/ "\""
 
 // Unsigned integer literal.
 INTEGER : /[0-9]+/
 
-// Unquoted identifier: starts with letter or underscore,
-// followed by letters, digits, or underscores.
-// All named keyword terminals above have higher lexer priority than NAME
-// because Lark gives string literals priority over regex terminals.
+// Unquoted identifier.
 NAME    : /[a-zA-Z_][a-zA-Z0-9_]*/
 
 // ─── Whitespace and structure ─────────────────────────────────────────────────
 
-// _NL matches one or more physical newlines (with optional blank-line whitespace).
-// Leading underscore tells Lark to discard these tokens from the parse tree —
-// they are structural only.
 _NL : /(\r?\n[\t ]*)+/
 
-// _INDENT and _DEDENT are virtual tokens injected by the JockyIndenter
-// post-lexer in parser.py. Declared here so the grammar can reference them.
 %declare _INDENT _DEDENT
 
-// Ignore inline whitespace (spaces and tabs between tokens on the same line).
-// The JockyIndenter processes leading whitespace into _INDENT/_DEDENT
-// before this rule fires — do not remove this line.
 %ignore /[ \t]+/
 
-// Comments: # to end of line, discarded entirely.
+// Comments: # to end of line.
 %ignore /\#[^\n]*/

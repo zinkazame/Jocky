@@ -74,18 +74,86 @@ def context_from_tree(tree: Tree) -> _ScriptContext:
 # Naming convention: JOCKY_{command}_{primitive}
 
 _SIGS: dict[str, list[tuple[str, ir.Type]]] = {
-    "JOCKY_acquire_process_list":  [],
-    "JOCKY_acquire_memory_region": [("pid", _i32), ("size", _i64)],
-    "JOCKY_acquire_cpu_registers": [],
-    "JOCKY_acquire_connections":   [],
-    "JOCKY_acquire_dns_cache":     [],
-    "JOCKY_capture_traffic":       [("duration", _i32), ("interface", _i8p)],
-    "JOCKY_inspect_registry":      [("key", _i8p)],
-    "JOCKY_inspect_services":      [("state", _i8p)],
-    "JOCKY_inspect_startup_items": [],
-    "JOCKY_inspect_file_metadata": [("path", _i8p)],
-    "JOCKY_inspect_recent_files":  [("count", _i32)],
-    "JOCKY_hash_file":             [("path", _i8p)],
+
+    # ── acquire ──────────────────────────────────────────────────────────────
+    "JOCKY_acquire_process_list":   [],
+    "JOCKY_acquire_memory_region":  [("pid", _i32), ("base", _i64), ("size", _i64)],
+    "JOCKY_acquire_cpu_registers":  [("pid", _i32)],
+    "JOCKY_acquire_loaded_modules": [("pid", _i32)],
+    "JOCKY_acquire_handles":        [("pid", _i32)],
+    "JOCKY_acquire_tokens":         [("pid", _i32)],
+    "JOCKY_acquire_heap_strings":   [("pid", _i32), ("min_len", _i32)],
+    "JOCKY_acquire_connections":    [],
+    "JOCKY_acquire_dns_cache":      [],
+    "JOCKY_acquire_arp_cache":      [],
+    "JOCKY_acquire_route_table":    [],
+    "JOCKY_acquire_sockets":        [],
+    "JOCKY_acquire_proc_memory":    [("pid", _i32)],
+    "JOCKY_acquire_drivers":        [],
+
+    # ── inspect ──────────────────────────────────────────────────────────────
+    "JOCKY_inspect_registry":         [("key", _i8p)],
+    "JOCKY_inspect_services":         [("state", _i8p)],
+    "JOCKY_inspect_startup_items":    [],
+    "JOCKY_inspect_scheduled_tasks":  [],
+    "JOCKY_inspect_event_log":        [("log", _i8p), ("count", _i32)],
+    "JOCKY_inspect_usb_history":      [],
+    "JOCKY_inspect_prefetch_history": [],
+    "JOCKY_inspect_wifi_profiles":    [],
+    "JOCKY_inspect_named_pipes":      [],
+    "JOCKY_inspect_shares":           [],
+    "JOCKY_inspect_file_metadata":    [("path", _i8p)],
+    "JOCKY_inspect_recent_files":     [("count", _i32)],
+    "JOCKY_inspect_file_tree":        [("path", _i8p), ("max_depth", _i32)],
+    "JOCKY_inspect_ads":              [("path", _i8p)],
+    # Android
+    "JOCKY_inspect_installed_apps":   [],
+    "JOCKY_inspect_sms":              [],
+    "JOCKY_inspect_call_log":         [],
+    "JOCKY_inspect_location":         [],
+    "JOCKY_inspect_whatsapp_db":      [],
+    "JOCKY_inspect_telegram_db":      [],
+    "JOCKY_inspect_contacts":         [],
+
+    # ── hash ─────────────────────────────────────────────────────────────────
+    "JOCKY_hash_file":            [("path", _i8p)],
+    "JOCKY_hash_directory":       [("path", _i8p)],
+    "JOCKY_hash_memory_region":   [("pid", _i32), ("base", _i64), ("size", _i64)],
+
+    # ── capture ──────────────────────────────────────────────────────────────
+    "JOCKY_capture_traffic":    [("duration", _i32), ("interface", _i8p)],
+    "JOCKY_capture_keystrokes": [("duration", _i32)],
+    "JOCKY_capture_clipboard":  [],
+    "JOCKY_capture_screen":     [],
+
+    # ── extract ──────────────────────────────────────────────────────────────
+    "JOCKY_extract_browser_history":   [("browser", _i8p)],
+    "JOCKY_extract_browser_cookies":   [("browser", _i8p)],
+    "JOCKY_extract_browser_passwords": [("browser", _i8p)],
+    "JOCKY_extract_mft":               [("volume", _i8p)],
+    "JOCKY_extract_evtx":              [("path", _i8p)],
+    "JOCKY_extract_prefetch":          [("path", _i8p)],
+    "JOCKY_extract_lnk":               [("path", _i8p)],
+    "JOCKY_extract_registry_hive":     [("path", _i8p)],
+    "JOCKY_extract_memory_strings":    [("path", _i8p), ("min_len", _i32)],
+
+    # ── dump ─────────────────────────────────────────────────────────────────
+    "JOCKY_dump_process":        [("pid", _i32)],
+    "JOCKY_dump_registry_hive":  [("hive", _i8p)],
+    "JOCKY_dump_mft_raw":        [("volume", _i8p)],
+    "JOCKY_dump_pagefile":       [],
+    "JOCKY_dump_hiberfil":       [],
+
+    # ── list ─────────────────────────────────────────────────────────────────
+    "JOCKY_list_processes":   [],
+    "JOCKY_list_connections": [],
+    "JOCKY_list_users":       [],
+    "JOCKY_list_groups":      [],
+    "JOCKY_list_sessions":    [],
+    "JOCKY_list_patches":     [],
+    "JOCKY_list_software":    [],
+    "JOCKY_list_environment": [],
+    "JOCKY_list_timezone":    [],
 }
 
 
@@ -95,10 +163,39 @@ _SIGS: dict[str, list[tuple[str, ir.Type]]] = {
 
 _ZERO_ARG_PRIMITIVES: list[str] = [
     "JOCKY_acquire_process_list",
-    "JOCKY_acquire_cpu_registers",
     "JOCKY_acquire_connections",
     "JOCKY_acquire_dns_cache",
+    "JOCKY_acquire_arp_cache",
+    "JOCKY_acquire_route_table",
+    "JOCKY_acquire_sockets",
+    "JOCKY_acquire_drivers",
     "JOCKY_inspect_startup_items",
+    "JOCKY_inspect_scheduled_tasks",
+    "JOCKY_inspect_usb_history",
+    "JOCKY_inspect_prefetch_history",
+    "JOCKY_inspect_wifi_profiles",
+    "JOCKY_inspect_named_pipes",
+    "JOCKY_inspect_shares",
+    "JOCKY_inspect_installed_apps",
+    "JOCKY_inspect_sms",
+    "JOCKY_inspect_call_log",
+    "JOCKY_inspect_location",
+    "JOCKY_inspect_whatsapp_db",
+    "JOCKY_inspect_telegram_db",
+    "JOCKY_inspect_contacts",
+    "JOCKY_capture_clipboard",
+    "JOCKY_capture_screen",
+    "JOCKY_dump_pagefile",
+    "JOCKY_dump_hiberfil",
+    "JOCKY_list_processes",
+    "JOCKY_list_connections",
+    "JOCKY_list_users",
+    "JOCKY_list_groups",
+    "JOCKY_list_sessions",
+    "JOCKY_list_patches",
+    "JOCKY_list_software",
+    "JOCKY_list_environment",
+    "JOCKY_list_timezone",
 ]
 
 
@@ -202,12 +299,16 @@ def _build_main(
     main_fn = ir.Function(module, ir.FunctionType(_i32, []), name="JOCKY_main")
     str_counter = [0]
 
-    # Collect all operation tree nodes in volatility order
+    # Collect operation nodes that belong to sections (not func_def bodies).
+    # find_data() is recursive and would also pick up func_def operations,
+    # which reference parameter names rather than literal values and cannot
+    # be emitted as direct IR calls at this stage.
+    # We walk section_block subtrees only — cond_block children included.
     operations: list[Tree] = []
     for section_block in tree.find_data("section_block"):
-        for child in section_block.children:
-            if isinstance(child, Tree) and child.data == "operation":
-                operations.append(child)
+        # find_data on a subtree collects recursively (catches cond_block ops)
+        for op in section_block.find_data("operation"):
+            operations.append(op)
 
     if not obfuscate:
         # ── Linear path ──────────────────────────────────────────────────────
@@ -220,6 +321,12 @@ def _build_main(
 
     # ── Obfuscated path ──────────────────────────────────────────────────────
     n = len(operations)
+
+    # Edge case: no operations (function-only scripts or empty sections)
+    if n == 0:
+        entry = main_fn.append_basic_block("entry")
+        ir.IRBuilder(entry).ret(ir.Constant(_i32, 0))
+        return main_fn
 
     # Module-level global counter — loaded in every predicate block.
     # (counter * (counter+1)) & 1 is always 0 regardless of counter value,

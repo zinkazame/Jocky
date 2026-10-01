@@ -61,10 +61,13 @@ class StringEncryptor:
         32-byte AES-256 key. If None, a random key is generated per instance.
     """
 
-    # Regex to match LLVM IR string global constants:
-    # @.str.N = internal constant [M x i8] c"...\00"
+    # Regex to match LLVM IR string global constants.
+    # Handles both quoted (@".str.N") and bare (@.str.N) global name styles:
+    #   @".str.0" = internal constant [N x i8] c"..."  (llvmlite >= 0.39)
+    #   @.str.0   = internal constant [N x i8] c"..."  (older llvmlite / Clang output)
     _IR_STR_RE = re.compile(
-        r'(@\.str\.\d+)\s*=\s*internal\s+constant\s+\[(\d+)\s+x\s+i8\]\s+c"((?:[^"\\]|\\[0-9A-Fa-f]{2})*)"',
+        r'(@"?\.str\.\d+"?)\s*=\s*internal\s+constant'
+        r'\s+\[(\d+)\s+x\s+i8\]\s+c"((?:[^"\\]|\\[0-9A-Fa-f]{2})*)"',
         re.MULTILINE,
     )
 
