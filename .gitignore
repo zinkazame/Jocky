@@ -247,3 +247,5 @@ desktop.ini
 # ── One-off BYOVD dev utilities (not framework code) ─────────────────────────
 fix_*.py
 patch_*.py
+# ── Build pipeline output directory ──────────────────────────────────────────
+build_out/
