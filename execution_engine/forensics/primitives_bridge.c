@@ -13,8 +13,9 @@ int JOCKY_acquire_process_list(void) {
     return JOCKY_full_process_report("procs.json") ? 0 : 1;
 }
 
-int JOCKY_acquire_memory_region(int pid, long long size) {
-    return JOCKY_dump_suspicious((DWORD)pid, "suspicious.json", NULL, (SIZE_T)size) >= 0 ? 0 : 1;
+int JOCKY_acquire_memory_region(int pid, long long base, long long size) {
+    (void)base;  /* base address forwarded to hash_memory_region; dump_suspicious uses full VAD walk */
+    return JOCKY_dump_suspicious((DWORD)pid, "suspicious.json", NULL, (SIZE_T)(size > 0 ? size : 65536)) >= 0 ? 0 : 1;
 }
 
 int JOCKY_acquire_cpu_registers(void) {

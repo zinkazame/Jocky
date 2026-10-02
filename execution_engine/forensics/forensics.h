@@ -25,7 +25,10 @@
 #include "proc_analysis.h"
 
 /* stubs — added each sub-phase */
-#include "mem_acquire.h" 
-#include "net_state.h"    
+#include "mem_acquire.h"
+#include "net_state.h"
 #include "reg_walk.h"
-#include "fs_analysis.h" 
+#include "fs_analysis.h"
+
+/* Phase 13.6 — v0.3 primitive implementations */
+#include "primitives_v03.h" 
