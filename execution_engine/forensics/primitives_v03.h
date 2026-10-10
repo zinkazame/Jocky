@@ -80,6 +80,13 @@ int JOCKY_extract_browser_history(const char *browser);
 int JOCKY_extract_browser_cookies(const char *browser);
 int JOCKY_extract_browser_downloads(const char *browser);
 
+/* v1.0 — parsing layer acquisition primitives */
+int JOCKY_acquire_srum(const char *outdir);
+int JOCKY_acquire_amcache(const char *outdir);
+int JOCKY_acquire_browser_history(const char *outdir);
+int JOCKY_acquire_timeline(const char *outdir);
+int JOCKY_acquire_hiberfil(const char *outdir);
+
 #ifdef __cplusplus
 }
 #endif

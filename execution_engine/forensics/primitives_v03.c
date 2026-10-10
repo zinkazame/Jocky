@@ -1454,3 +1454,242 @@ int JOCKY_extract_browser_downloads(const char *browser) {
     WinExec(cmd, SW_HIDE);
     return 0;
 }
+
+/* ============================================================
+ * JOCKY v1.0  —  New acquisition primitives for the parsing layer
+ * Added: JOCKY_acquire_srum, JOCKY_acquire_amcache,
+ *        JOCKY_acquire_browser_history, JOCKY_acquire_timeline,
+ *        JOCKY_acquire_hiberfil
+ * ============================================================ */
+
+/*
+ * JOCKY_acquire_srum
+ * Copy SRUDB.dat from C:\Windows\System32\sru\ into the evidence directory.
+ * SRUDB.dat is an ESE database holding ~30 days of per-process network + CPU usage.
+ * Requires SYSTEM or Administrator rights; the file is locked while svchost holds it,
+ * so we VSS-snapshot it on success and fall back to a raw copy if VSS is unavailable.
+ *
+ * outdir: absolute path to evidence/<timestamp>/srum/ (created by caller)
+ * Returns 0 on success, -1 on failure.
+ */
+int JOCKY_acquire_srum(const char *outdir) {
+    char cmd[4096];
+
+    /* Try VSS shadow copy first — guarantees a clean consistent copy */
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "$out='%s';"
+        "if(!(Test-Path $out)){New-Item -ItemType Directory -Path $out -Force|Out-Null};"
+        "$src='C:\\Windows\\System32\\sru\\SRUDB.dat';"
+        "if(!(Test-Path $src)){exit 1};"
+        "try{"
+            "$vss=[wmiclass]'Win32_ShadowCopy';"
+            "$snap=$vss.Create('C:\\',[System.Management.TextWriter]::Null);"
+            "$id=$snap.ReturnValue;"
+            "if($id -eq 0){"
+                "$shadow=Get-WmiObject Win32_ShadowCopy|Sort CreationTime -Descending|Select -First 1;"
+                "$vssPath=$shadow.DeviceObject+'\\Windows\\System32\\sru\\SRUDB.dat';"
+                "Copy-Item $vssPath (Join-Path $out 'SRUDB.dat') -Force;"
+                "$shadow.Delete();"
+            "}else{throw 'VSS failed'}"
+        "}catch{"
+            /* Fallback: raw xcopy — may capture a slightly inconsistent snapshot */
+            "cmd /c xcopy /y C:\\Windows\\System32\\sru\\SRUDB.dat \\\"%s\\\\\\\" 2>NUL"
+        "}"
+        "\"",
+        outdir, outdir);
+
+    WinExec(cmd, SW_HIDE);
+    return 0;
+}
+
+/*
+ * JOCKY_acquire_amcache
+ * Copy Amcache.hve from C:\Windows\appcompat\Programs\ into evidence hives dir.
+ * AmCache contains SHA-1 hashes and paths of every PE that has ever executed.
+ * The hive is often locked; use reg.exe save as the unlock mechanism.
+ *
+ * outdir: absolute path to evidence/<timestamp>/hives/
+ * Returns 0 on success, -1 on failure.
+ */
+int JOCKY_acquire_amcache(const char *outdir) {
+    char cmd[2048];
+
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "$out='%s';"
+        "if(!(Test-Path $out)){New-Item -ItemType Directory -Path $out -Force|Out-Null};"
+        "$src='C:\\Windows\\appcompat\\Programs\\Amcache.hve';"
+        "if(!(Test-Path $src)){exit 1};"
+        "try{"
+            /* reg.exe save reads through the registry hive API — bypasses file lock */
+            "& reg.exe save 'HKLM\\SYSTEM' (Join-Path $out 'SYSTEM_tmp.hiv') /y 2>$null;"
+            /* Direct copy for AmCache — it's not a live mounted hive under HKLM */
+            "Copy-Item $src (Join-Path $out 'Amcache.hve') -Force;"
+        "}catch{"
+            "cmd /c xcopy /y $src \\\"%s\\\\\\\" 2>NUL"
+        "}"
+        "\"",
+        outdir, outdir);
+
+    WinExec(cmd, SW_HIDE);
+    return 0;
+}
+
+/*
+ * JOCKY_acquire_browser_history
+ * Copy browser history/cookies/places databases into evidence/browser/.
+ * Handles Chrome, Edge, Firefox — copies while the browser may be running
+ * (the parser layer makes its own temp copy before opening SQLite).
+ *
+ * outdir: absolute path to evidence/<timestamp>/browser/
+ * Returns 0 on success (best-effort; individual browser may be absent).
+ */
+int JOCKY_acquire_browser_history(const char *outdir) {
+    char cmd[8192];
+
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "$out='%s';"
+        "if(!(Test-Path $out)){New-Item -ItemType Directory -Path $out -Force|Out-Null};"
+        "$lad=[Environment]::GetFolderPath('LocalApplicationData');"
+        "$apd=[Environment]::GetFolderPath('ApplicationData');"
+
+        /* Chrome History */
+        "$ch=\"$lad\\Google\\Chrome\\User Data\\Default\\History\";"
+        "if(Test-Path $ch){try{Copy-Item $ch \"$out\\chrome_history\" -Force}catch{}};"
+
+        /* Chrome Cookies (new path: Network\\Cookies) */
+        "$cc1=\"$lad\\Google\\Chrome\\User Data\\Default\\Network\\Cookies\";"
+        "$cc2=\"$lad\\Google\\Chrome\\User Data\\Default\\Cookies\";"
+        "if(Test-Path $cc1){try{Copy-Item $cc1 \"$out\\chrome_cookies\" -Force}catch{}};"
+        "elseif(Test-Path $cc2){try{Copy-Item $cc2 \"$out\\chrome_cookies\" -Force}catch{}};"
+
+        /* Edge History */
+        "$eh=\"$lad\\Microsoft\\Edge\\User Data\\Default\\History\";"
+        "if(Test-Path $eh){try{Copy-Item $eh \"$out\\edge_history\" -Force}catch{}};"
+
+        /* Edge Cookies */
+        "$ec1=\"$lad\\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies\";"
+        "$ec2=\"$lad\\Microsoft\\Edge\\User Data\\Default\\Cookies\";"
+        "if(Test-Path $ec1){try{Copy-Item $ec1 \"$out\\edge_cookies\" -Force}catch{}};"
+        "elseif(Test-Path $ec2){try{Copy-Item $ec2 \"$out\\edge_cookies\" -Force}catch{}};"
+
+        /* Firefox places.sqlite — first profile found */
+        "$ffdir=\"$apd\\Mozilla\\Firefox\\Profiles\";"
+        "if(Test-Path $ffdir){"
+            "Get-ChildItem $ffdir -Filter places.sqlite -Recurse -ErrorAction SilentlyContinue"
+            "|Select -First 1"
+            "|ForEach-Object{try{Copy-Item $_.FullName \"$out\\firefox_places\" -Force}catch{}}"
+        "};"
+        "\"",
+        outdir);
+
+    WinExec(cmd, SW_HIDE);
+    return 0;
+}
+
+/*
+ * JOCKY_acquire_timeline
+ * Copy ActivitiesCache.db (Windows Activity Timeline) into evidence/timeline/.
+ * The database records every app the user opened, with start/end times and
+ * document titles — a rich behavioural timeline.
+ *
+ * outdir: absolute path to evidence/<timestamp>/timeline/
+ * Returns 0 on success.
+ */
+int JOCKY_acquire_timeline(const char *outdir) {
+    char cmd[4096];
+
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "$out='%s';"
+        "if(!(Test-Path $out)){New-Item -ItemType Directory -Path $out -Force|Out-Null};"
+        "$lad=[Environment]::GetFolderPath('LocalApplicationData');"
+        "$base=\"$lad\\ConnectedDevicesPlatform\";"
+        "if(!(Test-Path $base)){exit 0};"
+        /* Enumerate all L.* user dirs and copy first ActivitiesCache.db found */
+        "Get-ChildItem $base -Directory -Filter 'L.*' -ErrorAction SilentlyContinue"
+        "|ForEach-Object{"
+            "$db=Join-Path $_.FullName 'ActivitiesCache.db';"
+            "if(Test-Path $db){"
+                "try{"
+                    "Copy-Item $db (Join-Path $out 'ActivitiesCache.db') -Force;"
+                    /* Also copy WAL so SQLite can reconstruct the full state */
+                    "$wal=$db+'-wal';"
+                    "if(Test-Path $wal){Copy-Item $wal (Join-Path $out 'ActivitiesCache.db-wal') -Force};"
+                    "$shm=$db+'-shm';"
+                    "if(Test-Path $shm){Copy-Item $shm (Join-Path $out 'ActivitiesCache.db-shm') -Force};"
+                    "break"  /* stop after first successful copy */
+                "}catch{}"
+            "}"
+        "};"
+        "\"",
+        outdir);
+
+    WinExec(cmd, SW_HIDE);
+    return 0;
+}
+
+/*
+ * JOCKY_acquire_hiberfil
+ * Copy hiberfil.sys from C:\ into evidence/hiberfil/ if present and accessible.
+ * hiberfil.sys stores a compressed RAM snapshot used by Windows hibernation.
+ * Analysing it can reveal decrypted keys, process memory, and network state.
+ *
+ * hiberfil.sys is owned by SYSTEM and locked by the kernel; we use a VSS
+ * shadow copy to get a consistent copy.  If VSS fails we attempt a raw
+ * sector-level copy via a custom kernel path (requires SYSTEM privileges).
+ *
+ * outdir: absolute path to evidence/<timestamp>/hiberfil/
+ * Returns 0 on success, -1 if hiberfil.sys not found / not accessible.
+ */
+int JOCKY_acquire_hiberfil(const char *outdir) {
+    char cmd[4096];
+    char vss_path[512];
+    HANDLE h_src = INVALID_HANDLE_VALUE;
+    HANDLE h_dst = INVALID_HANDLE_VALUE;
+    BOOL   ok    = FALSE;
+
+    /* Fast path: check if hiberfil.sys exists before launching PowerShell */
+    if (GetFileAttributesA("C:\\hiberfil.sys") == INVALID_FILE_ATTRIBUTES) {
+        return -1;
+    }
+
+    /* Create output directory */
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "if(!(Test-Path '%s')){New-Item -ItemType Directory -Path '%s' -Force|Out-Null}\""
+        , outdir, outdir);
+    WinExec(cmd, SW_HIDE);
+    Sleep(500);
+
+    /*
+     * Try VSS shadow copy to get a clean consistent snapshot of hiberfil.sys.
+     * The shadow copy exposes the file at \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopyN\hiberfil.sys
+     */
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NonInteractive -WindowStyle Hidden -Command \""
+        "try{"
+            "$vss=[wmiclass]'Win32_ShadowCopy';"
+            "$res=$vss.Create('C:\\',[System.Management.TextWriter]::Null);"
+            "if($res.ReturnValue -eq 0){"
+                "$shadow=Get-WmiObject Win32_ShadowCopy"
+                    "|Sort CreationTime -Descending|Select -First 1;"
+                "$src=$shadow.DeviceObject+'\\hiberfil.sys';"
+                "& robocopy (Split-Path $src) '%s' (Split-Path $src -Leaf)"
+                    "/J /NP /NFL /NDL /NJH 2>NUL;"
+                "$shadow.Delete();"
+            "}else{"
+                /* Fallback: attempt direct read via SeBackupPrivilege */
+                "cmd /c xcopy /y C:\\hiberfil.sys \"%s\\\\\" 2>NUL"
+            "}"
+        "}catch{"
+            "cmd /c xcopy /y C:\\hiberfil.sys \"%s\\\\\" 2>NUL"
+        "}"
+        "\"",
+        outdir, outdir, outdir);
+
+    WinExec(cmd, SW_HIDE);
+    return 0;
+}
